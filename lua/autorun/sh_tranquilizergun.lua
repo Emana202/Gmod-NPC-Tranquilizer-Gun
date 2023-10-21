@@ -125,7 +125,6 @@ if ( SERVER ) then
                         local speed = Rand( 1.1, 1.33 )
                         lambda:SetPlaybackRate( speed )
 
-                        local lastHP = lambda:Health()
                         downTime = ( CurTime() + ( ( downTime / speed ) * Rand( 0.66, 1 ) ) )
                         while ( CurTime() < downTime and lambda.l_TranqGun_State == 1 ) do
                             coroutine_yield()
@@ -145,7 +144,7 @@ if ( SERVER ) then
                 lambda:SetNoDraw( true )
                 lambda:DrawShadow( false )
 
-                lambda.l_TranqGun_State = 2
+                lambda.l_TranqGun_State = 3
                 lambda:SwitchWeapon( "none", true )
 
                 local lastColl = lambda:GetCollisionGroup()
@@ -223,7 +222,7 @@ if ( SERVER ) then
                 lambda:GetPhysicsObject():EnableCollisions( true )
 
                 lambda:PreventWeaponSwitch( false )
-                lambda.l_TranqGun_State = 3
+                lambda.l_TranqGun_State = 4
 
                 if IsValid( ragdoll ) then
                     local ragPos = ragdoll:GetPos()
@@ -279,7 +278,7 @@ if ( SERVER ) then
 
                         wakeTime = ( CurTime() + ( ( wakeTime / speed ) * ( faceDown and 0.7 or 0.55 ) ) )
                         while ( CurTime() < wakeTime ) do
-                            if lambda.l_TranqGun_State == 4 then
+                            if lambda.l_TranqGun_State == 5 then
                                 lambda.l_isfrozen = false
                                 return 
                             end
@@ -332,7 +331,7 @@ if ( SERVER ) then
 
         local function OnLambdaCanTarget( lambda, target )
             if lambda:GetState( "Tranquilized" ) then return true end
-            if target.IsLambdaPlayer and target:GetState( "Tranquilized" ) and target.l_TranqGun_State == 2 then return true end
+            if target.IsLambdaPlayer and target:GetState( "Tranquilized" ) and target.l_TranqGun_State == 3 then return true end
         end
 
         local function OnLambdaChangeState( lambda, curState )
@@ -360,7 +359,7 @@ if ( SERVER ) then
         local function OnLambdaInjured( lambda, dmginfo )
             if lambda:GetState( "Tranquilized" ) then
                 local state = lambda.l_TranqGun_State
-                if state == 2 and dmginfo:GetDamageCustom() != 33554432 then return true end
+                if state == 3 and dmginfo:GetDamageCustom() != 33554432 then return true end
         
                 if state == 1 then
                     lambda.l_TranqGun_State = 2
@@ -370,7 +369,7 @@ if ( SERVER ) then
         end
 
         local function OnLambdaPlaySound( lambda, snd, voiceType )
-            if voiceType != "death" and lambda:GetState( "Tranquilized" ) and ( lambda.l_TranqGun_State == 1 or lambda.l_TranqGun_State == 2 ) then return true end
+            if voiceType != "death" and lambda:GetState( "Tranquilized" ) and ( lambda.l_TranqGun_State == 1 or lambda.l_TranqGun_State == 3 ) then return true end
         end
 
         local function OnLambdaThink( lambda, wepent, isDead )
@@ -379,7 +378,7 @@ if ( SERVER ) then
             if lambda:GetState( "Tranquilized" ) then 
                 lambda.l_TranqGun_HitTime = false
 
-                if lambda.l_TranqGun_State == 2 then 
+                if lambda.l_TranqGun_State == 3 then 
                     local ragdoll = lambda.l_TranqGun_Ragdoll
                     if !IsValid( ragdoll ) then
                         lambda:SetState()
@@ -622,7 +621,6 @@ else
     local pairs = pairs
     local FindByClass = ents.FindByClass
 
-    local drawZZZs = CreateLambdaConvar( "lambdaplayers_weapons_tranqgun_drawzzzs", 1, true, true, false, "If targets that were tranqilized should have an icon above their head?", 0, 1, { type = "Bool", name = "Tranquilizer Gun - Draw Icons", category = "Weapon Utilities" } )
     local uiscale = GetConVar( "lambdaplayers_uiscale" )
     local displayArmor = GetConVar( "lambdaplayers_displayarmor" )
     local sleepMat = Material( "lambdaplayers/icon/sleepytime" )
@@ -663,36 +661,31 @@ else
     local sleepIcons = {}
 
     local function DrawZZZs()
-        local drawAng
-        local drawIcons = drawZZZs:GetBool()
+        for _, ragdoll in ipairs( ents_GetAll() ) do
+            if !IsValid( ragdoll ) then continue end
 
-        if drawIcons then
-            for _, ragdoll in ipairs( ents_GetAll() ) do
-                if !IsValid( ragdoll ) then continue end
+            local owner = ragdoll:GetNW2Entity( "lambda_tranqgun_owner" )
+            if !IsValid( owner ) then continue end
 
-                local owner = ragdoll:GetNW2Entity( "lambda_tranqgun_owner" )
-                if !IsValid( owner ) then continue end
+            local drawPos = GetHeadPosition( ragdoll )
+            local iconData = sleepIcons[ owner ]
+            if !iconData then
+                local plyClr = ( owner.GetPlayerColor and owner:GetPlayerColor():ToColor() or Color( 255, 255, 255 ) )
+                plyClr.a = 0
 
-                local drawPos = GetHeadPosition( ragdoll )
-                local iconData = sleepIcons[ owner ]
-                if !iconData then
-                    local plyClr = ( owner.GetPlayerColor and owner:GetPlayerColor():ToColor() or Color( 255, 255, 255 ) )
-                    plyClr.a = 0
-
-                    sleepIcons[ owner ] = {
-                        Pos = drawPos,
-                        Color = plyClr,
-                        Ragdoll = ragdoll
-                    }
-                else
-                    iconData.Pos = drawPos
-                end
+                sleepIcons[ owner ] = {
+                    Pos = drawPos,
+                    Color = plyClr,
+                    Ragdoll = ragdoll
+                }
+            else
+                iconData.Pos = drawPos
             end
-
-            drawAng = EyeAngles()
-            drawAng:RotateAroundAxis( drawAng:Up(), -90 )
-            drawAng:RotateAroundAxis( drawAng:Forward(), 90 )
         end
+
+        local drawAng = EyeAngles()
+        drawAng:RotateAroundAxis( drawAng:Up(), -90 )
+        drawAng:RotateAroundAxis( drawAng:Forward(), 90 )
 
         for owner, iconData in pairs( sleepIcons ) do
             local drawClr = iconData.Color
@@ -718,13 +711,11 @@ else
                 drawClr.a = min( drawClr.a + ( RealFrameTime() * 255 / 2 ), 255 )
             end
 
-            if drawIcons then
-                cam.Start3D2D( drawPos, drawAng, 1 )
-                    surface.SetDrawColor( drawClr )
-                    surface.SetMaterial( sleepMat )
-                    surface.DrawTexturedRect( -30, -17.5, 30, 17.5 )
-                cam.End3D2D()
-            end
+            cam.Start3D2D( drawPos, drawAng, 1 )
+                surface.SetDrawColor( drawClr )
+                surface.SetMaterial( sleepMat )
+                surface.DrawTexturedRect( -30, -17.5, 30, 17.5 )
+            cam.End3D2D()
         end
     end
 
@@ -814,8 +805,8 @@ local function OnDartTouch( self, ent )
                     else
                         ent.l_TranqGun_HitTime = ( ent.l_TranqGun_HitTime - koTime )
                     end
-                elseif ent.l_TranqGun_State == 3 then
-                    ent.l_TranqGun_State = 4
+                elseif ent.l_TranqGun_State == 4 then
+                    ent.l_TranqGun_State = 5
                 end
             elseif !ent:IsNextBot() and ent:IsNPC() and ( IsValidRagdoll( ent:GetModel() ) or IsValidProp( ent:GetModel() ) ) then
                 local createID = ent:GetCreationID()
