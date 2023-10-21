@@ -1,0 +1,17 @@
+"UnlitGeneric"
+{
+	$basetexture	"lambdaplayers/icon/sleepytime"
+	$translucent	"1"	
+	$vertexcolor 	"1"
+	$vertexalpha 	"1"
+
+	Proxies
+	{
+		AnimatedTexture
+		{
+			animatedTextureVar 				$basetexture
+			animatedTextureFrameNumVar 		$frame
+			animatedTextureFrameRate 		"20"
+		}
+	}
+}
