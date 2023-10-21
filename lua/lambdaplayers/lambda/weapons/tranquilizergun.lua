@@ -12,6 +12,7 @@ table.Merge( _LAMBDAPLAYERSWEAPONS, {
         holdtype = "revolver",
         killicon = "weapon_m9tranqgun",
         bonemerge = true,
+        dropentity = "weapon_m9tranqgun",
 
         clip = 1,
         deploydelay = 0.5,

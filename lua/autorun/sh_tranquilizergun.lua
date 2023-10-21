@@ -171,6 +171,9 @@ if ( SERVER ) then
             end
 
             lambda.l_TranqGun_Ragdoll = ragdoll
+            if RDReagdollMaster then 
+                SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
+            end
 
             local hiddenChildren = {}
             for _, child in ipairs( lambda:GetChildren() ) do
@@ -183,13 +186,12 @@ if ( SERVER ) then
                 child:SetRenderMode( RENDERMODE_NONE )
                 child:DrawShadow( false )
 
-                local fakeChild = ents_Create( "base_anim" )
+                local fakeChild = ents_Create( "base_gmodentity" )
                 fakeChild:SetModel( mdl )
                 fakeChild:SetPos( ragdoll:GetPos() )
                 fakeChild:SetAngles( ragdoll:GetAngles() )
-                fakeChild:SetOwner( ragdoll )
-                fakeChild:SetParent( ragdoll )
                 fakeChild:Spawn()
+                fakeChild:SetParent( ragdoll )
                 fakeChild:AddEffects( EF_BONEMERGE )
                 ragdoll:DeleteOnRemove( fakeChild )
 
@@ -590,12 +592,12 @@ if ( SERVER ) then
 
                 ent.l_TranqGun_IsWakingUp = false
                 ent.l_TranqGun_IsTranquilized = false 
+                ent.BecomeActiveRagdoll = ent.l_TranqGun_ZippyRagFunc
 
                 if ragdoll:IsOnFire() then
                     ent:Ignite( GetBurnEndTime( ragdoll ) )
                 end
 
-                ent:SetVelocity( ragdoll:GetVelocity() )
                 ragdoll:Remove()
             end
         end
@@ -793,7 +795,7 @@ local function OnDartTouch( self, ent )
             incTime = ( incTime - ( incTime * ( koTime / koMaxTime ) ) )
             ent.l_TranqGun_DropTime = ( ent.l_TranqGun_DropTime + incTime )
         elseif ent:Health() > 0 then
-            if ent.IsLambdaPlayer and LambdaIsForked then 
+            if ent.IsLambdaPlayer and ent:Alive() and LambdaIsForked then 
                 if !ent:GetState( "Tranquilized" ) then
                     local hitTime = ent.l_TranqGun_HitTime
                     if !hitTime then
@@ -812,9 +814,12 @@ local function OnDartTouch( self, ent )
                 local createID = ent:GetCreationID()
                 local koTimer = "LambdaTranq_NPCKnockOutTimer_" .. createID
 
+                if ent.Time_StopActiveRagdoll then
+                    ent.Time_StopActiveRagdoll = ( ent.Time_StopActiveRagdoll + koTime + 1 )
+                end
+
                 if !TimerExists( koTimer ) then
-                    CreateTimer( koTimer, koTime, 1, function()
-                        if !IsValid( ent ) or ent:Health() <= 0 or ent:GetInternalVariable( "m_lifeState" ) != 0 then return end
+                    local function BecomeADoll( ent, ragCopyTarg )
                         local preStopVel = ( ent:GetVelocity() + ent:GetMoveVelocity() )
 
                         ent:SetNoDraw( true )
@@ -859,11 +864,12 @@ local function OnDartTouch( self, ent )
                         ragdoll:SetPos( ent:GetPos() )
                         if !isRagdoll then ragdoll:SetAngles( ent:GetAngles() ) end
                         ragdoll:SetOwner( ent )
-                        
+
                         if isRagdoll then
                             ragdoll:AddEffects( EF_BONEMERGE )
-                            ragdoll:SetParent( ent ) 
+                            ragdoll:SetParent( ragCopyTarg or ent ) 
                         end
+                        print( ent, ragdoll, ragCopyTarg )
 
                         ragdoll:Spawn()
                         ragdoll:SetCollisionGroup( isRagdoll and COLLISION_GROUP_WEAPON or ent.l_TranqGun_LastCollisionGroup )
@@ -872,7 +878,7 @@ local function OnDartTouch( self, ent )
                         for _, v in ipairs( ent:GetBodyGroups() ) do 
                             ragdoll:SetBodygroup( v.id, ent:GetBodygroup( v.id ) )
                         end
-                        
+
                         if isRagdoll then
                             ragdoll:SetParent()
                             ragdoll:RemoveEffects( EF_BONEMERGE )
@@ -922,13 +928,12 @@ local function OnDartTouch( self, ent )
                                 child:DrawShadow( false )
                             end
 
-                            local fakeChild = ents_Create( "base_anim" )
+                            local fakeChild = ents_Create( "base_gmodentity" )
                             fakeChild:SetModel( mdl )
                             fakeChild:SetPos( ragdoll:GetPos() )
                             fakeChild:SetAngles( ragdoll:GetAngles() )
-                            fakeChild:SetOwner( ragdoll )
-                            fakeChild:SetParent( ragdoll )
                             fakeChild:Spawn()
+                            fakeChild:SetParent( ragdoll )
                             fakeChild:AddEffects( EF_BONEMERGE )
                             ragdoll:DeleteOnRemove( fakeChild )
 
@@ -940,10 +945,38 @@ local function OnDartTouch( self, ent )
                             weapon:DrawShadow( false )
                         end
 
+                        ent.l_TranqGun_ZippyRagFunc = ent.BecomeActiveRagdoll
+                        ent.BecomeActiveRagdoll = nil
+                        
+                        if RDReagdollMaster then 
+                            SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
+                        end
+
                         ent.l_TranqGun_Ragdoll = ragdoll
                         ent.l_TranqGun_IsProp = !isRagdoll
                         ent.l_TranqGun_IsTranquilized = true
                         ent.l_TranqGun_HiddenChildren = hiddenChildren
+                    end
+
+                    CreateTimer( koTimer, koTime, 1, function()
+                        if !IsValid( ent ) or ent:Health() <= 0 or ent:GetInternalVariable( "m_lifeState" ) != 0 then return end
+
+                        local zippyRag = ent.ActiveRagdoll
+                        if IsValid( zippyRag ) then
+                            zippyRag:DontDeleteOnRemove( ent )
+                            ent:StopActiveRagdoll()
+                            hook.Remove( "Think", "RagAnimateTo" .. ent:EntIndex() )
+
+                            SimpleTimer( 0.81, function()
+                                if !IsValid( ent ) then return end
+                                BecomeADoll( ent, ( IsValid( zippyRag ) and zippyRag ) )
+                                if IsValid( zippyRag ) then zippyRag:Remove() end
+                            end )
+
+                            return
+                        end
+
+                        BecomeADoll( ent )
                     end )
                 else
                     AdjustTimer( koTimer, max( TimerTimeLeft( koTimer ) - koTime, 0 ) )
@@ -977,7 +1010,7 @@ local function OnDartThink( self )
 end
 
 function M9TranqGun_FireDart( pos, fwd, owner, weapon )
-    local dart = ents_Create( "base_anim" )
+    local dart = ents_Create( "base_gmodentity" )
     dart:SetModel( "models/weapons/rifleshell.mdl" )
     dart:SetPos( pos )
     dart:SetAngles( fwd:Angle() )
