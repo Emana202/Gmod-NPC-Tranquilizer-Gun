@@ -99,7 +99,7 @@ if ( SERVER ) then
             lambda.l_UpdateAnimations = false
             lambda:RemoveAllGestures()
             lambda:EmitSound( "lambdaplayers/weapons/tranqgun/vo_presleep" .. random( 7 ) .. ".mp3", 70, lambda:GetVoicePitch(), 1, CHAN_VOICE )
-            lambda:StopCurrentVoiceLine()
+            lambda:SimpleTimer( 0.1, function() lambda:StopCurrentVoiceLine() end )
 
             if lambda.l_TranqGun_State == 0 then
                 lambda:DropWeapon()
