@@ -89,331 +89,333 @@ if ( SERVER ) then
 
     traceTbl.filter = {}
 
-    local function OnLambdaInitialize( lambda, weapon )
-        lambda.l_TranqGun_HitTime = false
-        lambda.l_TranqGun_State = 0
-        lambda.l_TranqGun_Ragdoll = nil
+    if LambdaIsForked then
+        local function OnLambdaInitialize( lambda, weapon )
+            lambda.l_TranqGun_HitTime = false
+            lambda.l_TranqGun_State = 0
+            lambda.l_TranqGun_Ragdoll = nil
 
-        function lambda:Tranquilized()
-            lambda.l_isfrozen = true
-            lambda.l_UpdateAnimations = false
-            lambda:RemoveAllGestures()
-            lambda:EmitSound( "lambdaplayers/weapons/tranqgun/vo_presleep" .. random( 7 ) .. ".mp3", 70, lambda:GetVoicePitch(), 1, CHAN_VOICE )
-            lambda:SimpleTimer( 0.1, function() lambda:StopCurrentVoiceLine() end )
+            function lambda:Tranquilized()
+                lambda.l_isfrozen = true
+                lambda.l_UpdateAnimations = false
+                lambda:RemoveAllGestures()
+                lambda:EmitSound( "lambdaplayers/weapons/tranqgun/vo_presleep" .. random( 7 ) .. ".mp3", 70, lambda:GetVoicePitch(), 1, CHAN_VOICE )
+                lambda:SimpleTimer( 0.1, function() lambda:StopCurrentVoiceLine() end )
 
-            if lambda.l_TranqGun_State == 0 then
-                lambda:DropWeapon()
-                lambda.l_TranqGun_State = 1
+                if lambda.l_TranqGun_State == 0 then
+                    lambda:DropWeapon()
+                    lambda.l_TranqGun_State = 1
 
-                local wepent = lambda.WeaponEnt
-                lambda:ClientSideNoDraw( wepent, true )
-                wepent:SetNoDraw( true )
-                wepent:DrawShadow( false )
+                    local wepent = lambda.WeaponEnt
+                    lambda:ClientSideNoDraw( wepent, true )
+                    wepent:SetNoDraw( true )
+                    wepent:DrawShadow( false )
 
-                lambda.l_Clip = lambda.l_MaxClip
-                lambda.l_WeaponUseCooldown = ( CurTime() + 5 )
+                    lambda.l_Clip = lambda.l_MaxClip
+                    lambda.l_WeaponUseCooldown = ( CurTime() + 5 )
 
-                local preVel = lambda.loco:GetVelocity()
-                lambda.loco:SetVelocity( vector_origin )
+                    local preVel = lambda.loco:GetVelocity()
+                    lambda.loco:SetVelocity( vector_origin )
 
-                if lambda:IsOnGround() and preVel:Length() <= 300 then
-                    local downTime = lambda:SetSequence( "death_0" .. random( 4 ) )
-                    lambda:ResetSequenceInfo()
-                    lambda:SetCycle( 0 )
+                    if lambda:IsOnGround() and preVel:Length() <= 300 then
+                        local downTime = lambda:SetSequence( "death_0" .. random( 4 ) )
+                        lambda:ResetSequenceInfo()
+                        lambda:SetCycle( 0 )
 
-                    local speed = Rand( 1.1, 1.33 )
-                    lambda:SetPlaybackRate( speed )
+                        local speed = Rand( 1.1, 1.33 )
+                        lambda:SetPlaybackRate( speed )
 
-                    downTime = ( CurTime() + ( ( downTime / speed ) * Rand( 0.66, 1 ) ) )
-                    while ( CurTime() < downTime and lambda.l_TranqGun_State == 1 ) do
-                        coroutine_yield()
+                        downTime = ( CurTime() + ( ( downTime / speed ) * Rand( 0.66, 1 ) ) )
+                        while ( CurTime() < downTime and lambda.l_TranqGun_State == 1 ) do
+                            coroutine_yield()
+                        end
                     end
                 end
-            end
-            lambda:PreventWeaponSwitch( true )
+                lambda:PreventWeaponSwitch( true )
 
-            for _, v in ipairs( GetLambdaPlayers() ) do
-                if v:GetEnemy() != lambda then continue end
-                v:SetEnemy( NULL )
-                if v:GetState( "Combat" ) then v:SetState( "Idle" ) end
-                v:CancelMovement()
-            end
-
-            lambda:ClientSideNoDraw( lambda, true )
-            lambda:SetNoDraw( true )
-            lambda:DrawShadow( false )
-
-            lambda.l_TranqGun_State = 3
-            lambda:SwitchWeapon( "none", true )
-
-            local lastColl = lambda:GetCollisionGroup()
-            lambda:SetCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
-            lambda:GetPhysicsObject():EnableCollisions( false )
-
-            local ragdoll = lambda:CreateServersideRagdoll( lambda.l_TranqGun_PreRagdollDmg, nil, true )
-            ragdoll:SetNW2Entity( "lambda_tranqgun_owner", lambda )
-            ragdoll:SetCollisionGroup( COLLISION_GROUP_WEAPON )
-            lambda.l_TranqGun_PreRagdollDmg = nil
-
-            local blinkFlex = ragdoll:GetFlexIDByName( "blink" )
-            if blinkFlex then ragdoll:SetFlexWeight( blinkFlex, 1 ) end
-
-            if lambda:IsOnFire() then
-                ragdoll:Ignite( GetBurnEndTime( lambda ) )
-                lambda:Extinguish()
-            end
-
-            local snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav" )
-            if snoreSnd then
-                snoreSnd:PlayEx( 1, lambda:GetVoicePitch() )
-                snoreSnd:SetSoundLevel( 65 )
-                ragdoll.l_TranqGun_SnoreSnd = snoreSnd
-            end
-
-            lambda.l_TranqGun_Ragdoll = ragdoll
-            if RDReagdollMaster then 
-                SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
-            end
-
-            local hiddenChildren = {}
-            for _, child in ipairs( lambda:GetChildren() ) do
-                if !IsValid( child ) or child == lambda.WeaponEnt or child:GetNoDraw() then continue end
-
-                local mdl = child:GetModel()
-                if !mdl or !IsValidModel( mdl ) then continue end
-
-                lambda:ClientSideNoDraw( child, true )
-                child:SetRenderMode( RENDERMODE_NONE )
-                child:DrawShadow( false )
-
-                local fakeChild = ents_Create( "base_gmodentity" )
-                fakeChild:SetModel( mdl )
-                fakeChild:SetPos( ragdoll:GetPos() )
-                fakeChild:SetAngles( ragdoll:GetAngles() )
-                fakeChild:Spawn()
-                fakeChild:SetParent( ragdoll )
-                fakeChild:AddEffects( EF_BONEMERGE )
-                ragdoll:DeleteOnRemove( fakeChild )
-
-                hiddenChildren[ #hiddenChildren + 1 ] = child
-            end
-            
-
-            ragdoll.l_TranqGun_DropTime = CurTime()
-            while ( IsValid( ragdoll ) and ( CurTime() - ragdoll.l_TranqGun_DropTime ) < sleepTime:GetFloat() ) do
-                coroutine_yield()
-            end
-
-            --
-
-            local function UnHideLambda()
-                for _, child in ipairs( hiddenChildren ) do
-                    if !IsValid( child ) then continue end
-                    lambda:ClientSideNoDraw( child, false )
-                    child:SetRenderMode( RENDERMODE_NORMAL )
-                    child:DrawShadow( true )
-                end
-    
-                lambda:ClientSideNoDraw( lambda, false )
-                lambda:SetNoDraw( false )
-                lambda:DrawShadow( true )
-            end
-
-            lambda:SetCollisionGroup( lastColl )
-            lambda:GetPhysicsObject():EnableCollisions( true )
-
-            lambda:PreventWeaponSwitch( false )
-            lambda.l_TranqGun_State = 4
-
-            if IsValid( ragdoll ) then
-                local ragPos = ragdoll:GetPos()
-                lambda:SetPos( ragPos )
-
-                local phys = ragdoll:GetPhysicsObject()
-                local ragAng = ( IsValid( phys ) and phys or ragdoll ):GetAngles()
-                local ragZ = ragAng.z
-
-                ragAng.x = 0
-                ragAng.y = NormalizeAngle( ragAng.y + 270 )
-                ragAng.z = 0
-                lambda:SetAngles( ragAng )
-
-                if ragdoll:IsOnFire() then
-                    lambda:Ignite( GetBurnEndTime( ragdoll ) )
+                for _, v in ipairs( GetLambdaPlayers() ) do
+                    if v:GetEnemy() != lambda then continue end
+                    v:SetEnemy( NULL )
+                    if v:GetState( "Combat" ) then v:SetState( "Idle" ) end
+                    v:CancelMovement()
                 end
 
-                traceTbl.start = ( ragPos + vector_up * 6 )
-                traceTbl.endpos = ( ragPos - vector_up * 32 )
-                traceTbl.filter[ 1 ] = ragdoll
-                traceTbl.filter[ 2 ] = lambda
+                lambda:ClientSideNoDraw( lambda, true )
+                lambda:SetNoDraw( true )
+                lambda:DrawShadow( false )
 
-                if TraceLine( traceTbl ).Hit then
-                    local ragMoveData = {}
-                    local ragRemoveTime = ( CurTime() + 0.4 )
-                    
-                    for i = 0, ( ragdoll:GetPhysicsObjectCount() - 1 ) do
-                        local phys = ragdoll:GetPhysicsObjectNum( i )
-                        if !IsValid( phys ) then continue end
+                lambda.l_TranqGun_State = 3
+                lambda:SwitchWeapon( "none", true )
 
-                        local physBone = ragdoll:TranslatePhysBoneToBone( i )
-                        if !physBone then continue end
+                local lastColl = lambda:GetCollisionGroup()
+                lambda:SetCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
+                lambda:GetPhysicsObject():EnableCollisions( false )
 
-                        phys:EnableCollisions( false )
+                local ragdoll = lambda:CreateServersideRagdoll( lambda.l_TranqGun_PreRagdollDmg, nil, true )
+                ragdoll:SetNW2Entity( "lambda_tranqgun_owner", lambda )
+                ragdoll:SetCollisionGroup( COLLISION_GROUP_WEAPON )
+                lambda.l_TranqGun_PreRagdollDmg = nil
 
-                        ragMoveData[ #ragMoveData + 1 ] = { 
-                            phys, 
-                            physBone,
-                            phys:GetPos(), 
-                            phys:GetAngles() 
-                        }
+                local blinkFlex = ragdoll:GetFlexIDByName( "blink" )
+                if blinkFlex then ragdoll:SetFlexWeight( blinkFlex, 1 ) end
+
+                if lambda:IsOnFire() then
+                    ragdoll:Ignite( GetBurnEndTime( lambda ) )
+                    lambda:Extinguish()
+                end
+
+                local snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav" )
+                if snoreSnd then
+                    snoreSnd:PlayEx( 1, lambda:GetVoicePitch() )
+                    snoreSnd:SetSoundLevel( 65 )
+                    ragdoll.l_TranqGun_SnoreSnd = snoreSnd
+                end
+
+                lambda.l_TranqGun_Ragdoll = ragdoll
+                if RDReagdollMaster then 
+                    SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
+                end
+
+                local hiddenChildren = {}
+                for _, child in ipairs( lambda:GetChildren() ) do
+                    if !IsValid( child ) or child == lambda.WeaponEnt or child:GetNoDraw() then continue end
+
+                    local mdl = child:GetModel()
+                    if !mdl or !IsValidModel( mdl ) then continue end
+
+                    lambda:ClientSideNoDraw( child, true )
+                    child:SetRenderMode( RENDERMODE_NONE )
+                    child:DrawShadow( false )
+
+                    local fakeChild = ents_Create( "base_gmodentity" )
+                    fakeChild:SetModel( mdl )
+                    fakeChild:SetPos( ragdoll:GetPos() )
+                    fakeChild:SetAngles( ragdoll:GetAngles() )
+                    fakeChild:Spawn()
+                    fakeChild:SetParent( ragdoll )
+                    fakeChild:AddEffects( EF_BONEMERGE )
+                    ragdoll:DeleteOnRemove( fakeChild )
+
+                    hiddenChildren[ #hiddenChildren + 1 ] = child
+                end
+                
+
+                ragdoll.l_TranqGun_DropTime = CurTime()
+                while ( IsValid( ragdoll ) and ( CurTime() - ragdoll.l_TranqGun_DropTime ) < sleepTime:GetFloat() ) do
+                    coroutine_yield()
+                end
+
+                --
+
+                local function UnHideLambda()
+                    for _, child in ipairs( hiddenChildren ) do
+                        if !IsValid( child ) then continue end
+                        lambda:ClientSideNoDraw( child, false )
+                        child:SetRenderMode( RENDERMODE_NORMAL )
+                        child:DrawShadow( true )
+                    end
+        
+                    lambda:ClientSideNoDraw( lambda, false )
+                    lambda:SetNoDraw( false )
+                    lambda:DrawShadow( true )
+                end
+
+                lambda:SetCollisionGroup( lastColl )
+                lambda:GetPhysicsObject():EnableCollisions( true )
+
+                lambda:PreventWeaponSwitch( false )
+                lambda.l_TranqGun_State = 4
+
+                if IsValid( ragdoll ) then
+                    local ragPos = ragdoll:GetPos()
+                    lambda:SetPos( ragPos )
+
+                    local phys = ragdoll:GetPhysicsObject()
+                    local ragAng = ( IsValid( phys ) and phys or ragdoll ):GetAngles()
+                    local ragZ = ragAng.z
+
+                    ragAng.x = 0
+                    ragAng.y = NormalizeAngle( ragAng.y + 270 )
+                    ragAng.z = 0
+                    lambda:SetAngles( ragAng )
+
+                    if ragdoll:IsOnFire() then
+                        lambda:Ignite( GetBurnEndTime( ragdoll ) )
                     end
 
-                    local faceDown = ( abs( NormalizeAngle( ragZ ) ) > 70 )
-                    local wakeTime = lambda:SetSequence( "zombie_slump_rise_0" .. ( faceDown and "1" or "2_fast" ) )
+                    traceTbl.start = ( ragPos + vector_up * 6 )
+                    traceTbl.endpos = ( ragPos - vector_up * 32 )
+                    traceTbl.filter[ 1 ] = ragdoll
+                    traceTbl.filter[ 2 ] = lambda
 
-                    lambda:ResetSequenceInfo()
-                    lambda:SetCycle( 0 )
-    
-                    local speed = ( faceDown and Rand( 1.2, 1.33 ) or Rand( 0.7, 0.85 ) )
-                    lambda:SetPlaybackRate( speed )
+                    if TraceLine( traceTbl ).Hit then
+                        local ragMoveData = {}
+                        local ragRemoveTime = ( CurTime() + 0.4 )
+                        
+                        for i = 0, ( ragdoll:GetPhysicsObjectCount() - 1 ) do
+                            local phys = ragdoll:GetPhysicsObjectNum( i )
+                            if !IsValid( phys ) then continue end
 
-                    wakeTime = ( CurTime() + ( ( wakeTime / speed ) * ( faceDown and 0.7 or 0.55 ) ) )
-                    while ( CurTime() < wakeTime ) do
-                        if lambda.l_TranqGun_State == 5 then
-                            lambda.l_isfrozen = false
-                            return 
+                            local physBone = ragdoll:TranslatePhysBoneToBone( i )
+                            if !physBone then continue end
+
+                            phys:EnableCollisions( false )
+
+                            ragMoveData[ #ragMoveData + 1 ] = { 
+                                phys, 
+                                physBone,
+                                phys:GetPos(), 
+                                phys:GetAngles() 
+                            }
                         end
 
-                        if ragRemoveTime then 
-                            local lerpVal = ( 1 - ( ragRemoveTime - CurTime() ) / 0.4 )
-                            if lerpVal > 1 then lerpVal = 1 end
+                        local faceDown = ( abs( NormalizeAngle( ragZ ) ) > 70 )
+                        local wakeTime = lambda:SetSequence( "zombie_slump_rise_0" .. ( faceDown and "1" or "2_fast" ) )
 
-                            for _, data in ipairs( ragMoveData ) do
-                                local phys = data[ 1 ]
-                                local pos, ang = lambda:GetBonePosition( data[ 2 ] )
+                        lambda:ResetSequenceInfo()
+                        lambda:SetCycle( 0 )
+        
+                        local speed = ( faceDown and Rand( 1.2, 1.33 ) or Rand( 0.7, 0.85 ) )
+                        lambda:SetPlaybackRate( speed )
 
-                                phys:SetPos( LerpVector( lerpVal, data[ 3 ], pos ) )
-                                phys:SetAngles( LerpAngle( lerpVal, data[ 4 ], ang ) )
+                        wakeTime = ( CurTime() + ( ( wakeTime / speed ) * ( faceDown and 0.7 or 0.55 ) ) )
+                        while ( CurTime() < wakeTime ) do
+                            if lambda.l_TranqGun_State == 5 then
+                                lambda.l_isfrozen = false
+                                return 
                             end
 
-                            if CurTime() >= ragRemoveTime then
-                                UnHideLambda()
-                                ragRemoveTime = nil 
-                                ragdoll:Remove()
+                            if ragRemoveTime then 
+                                local lerpVal = ( 1 - ( ragRemoveTime - CurTime() ) / 0.4 )
+                                if lerpVal > 1 then lerpVal = 1 end
+
+                                for _, data in ipairs( ragMoveData ) do
+                                    local phys = data[ 1 ]
+                                    local pos, ang = lambda:GetBonePosition( data[ 2 ] )
+
+                                    phys:SetPos( LerpVector( lerpVal, data[ 3 ], pos ) )
+                                    phys:SetAngles( LerpAngle( lerpVal, data[ 4 ], ang ) )
+                                end
+
+                                if CurTime() >= ragRemoveTime then
+                                    UnHideLambda()
+                                    ragRemoveTime = nil 
+                                    ragdoll:Remove()
+                                end
                             end
+
+                            coroutine_yield()
                         end
 
-                        coroutine_yield()
+                        local anims = lambda:GetWeaponHoldType()
+                        if anims then lambda:StartActivity( anims.idle ) end
+                    else
+                        UnHideLambda()
+                        lambda.loco:SetVelocity( ragdoll:GetVelocity() )
+                        ragdoll:Remove()
                     end
-
-                    local anims = lambda:GetWeaponHoldType()
-                    if anims then lambda:StartActivity( anims.idle ) end
                 else
                     UnHideLambda()
-                    lambda.loco:SetVelocity( ragdoll:GetVelocity() )
-                    ragdoll:Remove()
                 end
-            else
-                UnHideLambda()
-            end
 
-            lambda.l_UpdateAnimations = true
+                lambda.l_UpdateAnimations = true
+                lambda.l_isfrozen = false
+                lambda.l_TranqGun_State = 0
+
+                return true
+            end
+        end
+
+        local function OnLambdaRemoved( lambda )
+            local ragdoll = lambda.l_TranqGun_Ragdoll
+            if IsValid( ragdoll ) then ragdoll:Remove() end
+        end
+
+        local function OnLambdaCanTarget( lambda, target )
+            if lambda:GetState( "Tranquilized" ) then return true end
+            if target.IsLambdaPlayer and target:GetState( "Tranquilized" ) and target.l_TranqGun_State == 3 then return true end
+        end
+
+        local function OnLambdaChangeState( lambda, curState )
+            if curState == "Tranquilized" and lambda.l_isfrozen then return true end
+        end
+
+        local function OnLambdaPreKilled( lambda, dmginfo )
+            if !lambda:GetState( "Tranquilized" ) then return end
             lambda.l_isfrozen = false
             lambda.l_TranqGun_State = 0
 
-            return true
-        end
-    end
-
-    local function OnLambdaRemoved( lambda )
-        local ragdoll = lambda.l_TranqGun_Ragdoll
-        if IsValid( ragdoll ) then ragdoll:Remove() end
-    end
-
-    local function OnLambdaCanTarget( lambda, target )
-        if lambda:GetState( "Tranquilized" ) then return true end
-        if target.IsLambdaPlayer and target:GetState( "Tranquilized" ) and target.l_TranqGun_State == 3 then return true end
-    end
-
-    local function OnLambdaChangeState( lambda, curState )
-        if curState == "Tranquilized" and lambda.l_isfrozen then return true end
-    end
-
-    local function OnLambdaPreKilled( lambda, dmginfo )
-        if !lambda:GetState( "Tranquilized" ) then return end
-        lambda.l_isfrozen = false
-        lambda.l_TranqGun_State = 0
-
-        local ragdoll = lambda.l_TranqGun_Ragdoll
-        if IsValid( ragdoll ) then
-            lambda:SetPos( ragdoll:GetPos() )
-            lambda.l_BecomeRagdollEntity = ragdoll
-            lambda:SimpleTimer( 0, function() if IsValid( ragdoll ) then ragdoll:Remove() end end, true )
-            
-            local fallDmg = lambda:GetFallDamage( ragdoll:GetVelocity():Length(), true )
-            if fallDmg > 0 and lambda.l_PreDeathDamage >= fallDmg and dmginfo:IsDamageType( DMG_CRUSH ) then
-                dmginfo:SetDamageType( dmginfo:GetDamageType() + DMG_FALL )
+            local ragdoll = lambda.l_TranqGun_Ragdoll
+            if IsValid( ragdoll ) then
+                lambda:SetPos( ragdoll:GetPos() )
+                lambda.l_BecomeRagdollEntity = ragdoll
+                lambda:SimpleTimer( 0, function() if IsValid( ragdoll ) then ragdoll:Remove() end end, true )
+                
+                local fallDmg = lambda:GetFallDamage( ragdoll:GetVelocity():Length(), true )
+                if fallDmg > 0 and lambda.l_PreDeathDamage >= fallDmg and dmginfo:IsDamageType( DMG_CRUSH ) then
+                    dmginfo:SetDamageType( dmginfo:GetDamageType() + DMG_FALL )
+                end
             end
         end
-    end
 
-    local function OnLambdaInjured( lambda, dmginfo )
-        if lambda:GetState( "Tranquilized" ) then
-            local state = lambda.l_TranqGun_State
-            if state == 3 and dmginfo:GetDamageCustom() != 33554432 then return true end
-    
-            if state == 1 then
-                lambda.l_TranqGun_State = 2
-                lambda.l_TranqGun_PreRagdollDmg = dmginfo
+        local function OnLambdaInjured( lambda, dmginfo )
+            if lambda:GetState( "Tranquilized" ) then
+                local state = lambda.l_TranqGun_State
+                if state == 3 and dmginfo:GetDamageCustom() != 33554432 then return true end
+        
+                if state == 1 then
+                    lambda.l_TranqGun_State = 2
+                    lambda.l_TranqGun_PreRagdollDmg = dmginfo
+                end
             end
         end
-    end
 
-    local function OnLambdaPlaySound( lambda, snd, voiceType )
-        if voiceType != "death" and lambda:GetState( "Tranquilized" ) and ( lambda.l_TranqGun_State == 1 or lambda.l_TranqGun_State == 3 ) then return true end
-    end
+        local function OnLambdaPlaySound( lambda, snd, voiceType )
+            if voiceType != "death" and lambda:GetState( "Tranquilized" ) and ( lambda.l_TranqGun_State == 1 or lambda.l_TranqGun_State == 3 ) then return true end
+        end
 
-    local function OnLambdaThink( lambda, wepent, isDead )
-        if isDead then return end
+        local function OnLambdaThink( lambda, wepent, isDead )
+            if isDead then return end
 
-        if lambda:GetState( "Tranquilized" ) then 
-            lambda.l_TranqGun_HitTime = false
+            if lambda:GetState( "Tranquilized" ) then 
+                lambda.l_TranqGun_HitTime = false
 
-            if lambda.l_TranqGun_State == 3 then 
-                local ragdoll = lambda.l_TranqGun_Ragdoll
-                if !IsValid( ragdoll ) then
-                    lambda:SetState()
-                    lambda:KillSilent()
-                    return
+                if lambda.l_TranqGun_State == 3 then 
+                    local ragdoll = lambda.l_TranqGun_Ragdoll
+                    if !IsValid( ragdoll ) then
+                        lambda:SetState()
+                        lambda:KillSilent()
+                        return
+                    end
+
+                    lambda:SetPos( ragdoll:GetPos() )
+                    lambda.loco:SetVelocity( vector_origin )
+                    lambda.l_FallVelocity = 0
+                end
+            elseif lambda.l_TranqGun_HitTime and CurTime() >= lambda.l_TranqGun_HitTime then
+                lambda.l_TranqGun_HitTime = false
+
+                if lambda:GetIsTyping() then 
+                    lambda.l_queuedtext = nil
+                    lambda.l_typedtext = ""
                 end
 
-                lambda:SetPos( ragdoll:GetPos() )
-                lambda.loco:SetVelocity( vector_origin )
-                lambda.l_FallVelocity = 0
+                lambda:LookTo()
+                lambda:ResetAI()
+                lambda:CancelMovement()
+                lambda:SetState( "Tranquilized" )
             end
-        elseif lambda.l_TranqGun_HitTime and CurTime() >= lambda.l_TranqGun_HitTime then
-            lambda.l_TranqGun_HitTime = false
-
-            if lambda:GetIsTyping() then 
-                lambda.l_queuedtext = nil
-                lambda.l_typedtext = ""
-            end
-
-            lambda:LookTo()
-            lambda:ResetAI()
-            lambda:CancelMovement()
-            lambda:SetState( "Tranquilized" )
         end
-    end
 
-    hook_Add( "LambdaOnInitialize", "LambdaTranq_OnLambdaInitialize", OnLambdaInitialize )
-    hook_Add( "LambdaCanTarget", "LambdaTranq_OnLambdaCanTarget", OnLambdaCanTarget )
-    hook_Add( "LambdaOnChangeState", "LambdaTranq_OnLambdaChangeState", OnLambdaChangeState )
-    hook_Add( "LambdaOnPreKilled", "LambdaTranq_OnLambdaPreKilled", OnLambdaPreKilled )
-    hook_Add( "LambdaOnPlaySound", "LambdaTranq_OnLambdaPlaySound", OnLambdaPlaySound )
-    hook_Add( "LambdaOnInjured", "LambdaTranq_OnLambdaInjured", OnLambdaInjured )
-    hook_Add( "LambdaOnThink", "LambdaTranq_OnLambdaThink", OnLambdaThink )
-    hook_Add( "LambdaOnRemove", "LambdaTranq_OnLambdaRemoved", OnLambdaRemoved )
+        hook_Add( "LambdaOnInitialize", "LambdaTranq_OnLambdaInitialize", OnLambdaInitialize )
+        hook_Add( "LambdaCanTarget", "LambdaTranq_OnLambdaCanTarget", OnLambdaCanTarget )
+        hook_Add( "LambdaOnChangeState", "LambdaTranq_OnLambdaChangeState", OnLambdaChangeState )
+        hook_Add( "LambdaOnPreKilled", "LambdaTranq_OnLambdaPreKilled", OnLambdaPreKilled )
+        hook_Add( "LambdaOnPlaySound", "LambdaTranq_OnLambdaPlaySound", OnLambdaPlaySound )
+        hook_Add( "LambdaOnInjured", "LambdaTranq_OnLambdaInjured", OnLambdaInjured )
+        hook_Add( "LambdaOnThink", "LambdaTranq_OnLambdaThink", OnLambdaThink )
+        hook_Add( "LambdaOnRemove", "LambdaTranq_OnLambdaRemoved", OnLambdaRemoved )
+    end
 
     ---
 
@@ -628,8 +630,6 @@ else
     traceTbl.mask = MASK_SHOT
 
     local function RagdollNameDisplay()
-        if !LambdaIsForked then return end
-
         traceTbl.start = EyePos()
         traceTbl.endpos = ( traceTbl.start + EyeVector() * 32756 )
         traceTbl.filter = LocalPlayer()
@@ -721,7 +721,7 @@ else
         end
     end
 
-    hook_Add( "HUDPaint", "LambdaTranq_RagdollNameDisplay", RagdollNameDisplay )
+    if LambdaIsForked then hook_Add( "HUDPaint", "LambdaTranq_RagdollNameDisplay", RagdollNameDisplay ) end
     hook_Add( "PreDrawEffects", "LambdaTranq_DrawZZZs", DrawZZZs )
 
     ---
@@ -869,7 +869,6 @@ local function OnDartTouch( self, ent )
                             ragdoll:AddEffects( EF_BONEMERGE )
                             ragdoll:SetParent( ragCopyTarg or ent ) 
                         end
-                        print( ent, ragdoll, ragCopyTarg )
 
                         ragdoll:Spawn()
                         ragdoll:SetCollisionGroup( isRagdoll and COLLISION_GROUP_WEAPON or ent.l_TranqGun_LastCollisionGroup )
