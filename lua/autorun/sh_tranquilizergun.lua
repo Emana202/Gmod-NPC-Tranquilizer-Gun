@@ -44,6 +44,7 @@ local livingBeingMat = {
 local hitDamage = CreateConVar( "sv_tranqgun_hitdamage", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
 local sleepTime = CreateConVar( "sv_tranqgun_sleeptime", "20", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
 local knockoutTime = CreateConVar( "sv_tranqgun_knockouttime", "3", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
+local physDmgThreshold = CreateConVar( "sv_tranqgun_physdmgthreshold", "5", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
 
 local function GetHeadPosition( ent )
     local bone = ent:LookupBone( "ValveBiped.Bip01_Head1" )
@@ -467,6 +468,7 @@ if ( SERVER ) then
 
         if dmginfo:IsDamageType( DMG_CRUSH ) then
             dmginfo:ScaleDamage( 0.5 )
+            if dmginfo:GetDamage() < physDmgThreshold:GetInt() then return end
         end
 
         dmginfo:SetDamageCustom( 33554432 )
@@ -740,6 +742,9 @@ else
 
             panel:NumSlider( "Pass Out Time", "sv_tranqgun_knockouttime", 0, 60, 1 )
             panel:ControlHelp( "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head." )
+        
+            panel:NumSlider( "Physical Damage Threshold", "sv_tranqgun_physdmgthreshold", 0, 1000, 0 )
+            panel:ControlHelp( "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?" )
         end )
     end
 
