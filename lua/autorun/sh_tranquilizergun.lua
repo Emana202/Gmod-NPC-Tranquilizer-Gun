@@ -27,7 +27,6 @@ local ents_GetAll = ents.GetAll
 local max = math.max
 local min = math.min
 local ismatrix = ismatrix
-local hook_Add = hook.Add
 local hook_Remove = hook.Remove
 
 local traceTbl = {}
@@ -41,10 +40,10 @@ local livingBeingMat = {
     [ MAT_FLESH ] = true
 }
 
-local hitDamage = CreateConVar( "sv_tranqgun_hitdamage", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
-local sleepTime = CreateConVar( "sv_tranqgun_sleeptime", "20", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
+local hitDamage = CreateConVar( "sv_tranqgun_hitdamage", "5", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
+local sleepTime = CreateConVar( "sv_tranqgun_sleeptime", "30", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
 local knockoutTime = CreateConVar( "sv_tranqgun_knockouttime", "3", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
-local physDmgThreshold = CreateConVar( "sv_tranqgun_physdmgthreshold", "5", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
+local physDmgThreshold = CreateConVar( "sv_tranqgun_physdmgthreshold", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
 
 local function GetHeadPosition( ent )
     local bone = ent:LookupBone( "ValveBiped.Bip01_Head1" )
@@ -408,14 +407,14 @@ if ( SERVER ) then
             end
         end
 
-        hook_Add( "LambdaOnInitialize", "LambdaTranq_OnLambdaInitialize", OnLambdaInitialize )
-        hook_Add( "LambdaCanTarget", "LambdaTranq_OnLambdaCanTarget", OnLambdaCanTarget )
-        hook_Add( "LambdaOnChangeState", "LambdaTranq_OnLambdaChangeState", OnLambdaChangeState )
-        hook_Add( "LambdaOnPreKilled", "LambdaTranq_OnLambdaPreKilled", OnLambdaPreKilled )
-        hook_Add( "LambdaOnPlaySound", "LambdaTranq_OnLambdaPlaySound", OnLambdaPlaySound )
-        hook_Add( "LambdaOnInjured", "LambdaTranq_OnLambdaInjured", OnLambdaInjured )
-        hook_Add( "LambdaOnThink", "LambdaTranq_OnLambdaThink", OnLambdaThink )
-        hook_Add( "LambdaOnRemove", "LambdaTranq_OnLambdaRemoved", OnLambdaRemoved )
+        hook.Add( "LambdaOnInitialize", "LambdaTranq_OnLambdaInitialize", OnLambdaInitialize )
+        hook.Add( "LambdaCanTarget", "LambdaTranq_OnLambdaCanTarget", OnLambdaCanTarget )
+        hook.Add( "LambdaOnChangeState", "LambdaTranq_OnLambdaChangeState", OnLambdaChangeState )
+        hook.Add( "LambdaOnPreKilled", "LambdaTranq_OnLambdaPreKilled", OnLambdaPreKilled )
+        hook.Add( "LambdaOnPlaySound", "LambdaTranq_OnLambdaPlaySound", OnLambdaPlaySound )
+        hook.Add( "LambdaOnInjured", "LambdaTranq_OnLambdaInjured", OnLambdaInjured )
+        hook.Add( "LambdaOnThink", "LambdaTranq_OnLambdaThink", OnLambdaThink )
+        hook.Add( "LambdaOnRemove", "LambdaTranq_OnLambdaRemoved", OnLambdaRemoved )
     end
 
     ---
@@ -516,6 +515,12 @@ if ( SERVER ) then
             if !wakingTime then
                 ent:SetPos( ragPos )
                 if ent.l_TranqGun_IsProp then ent:SetAngles( ragdoll:GetAngles() ) end
+
+                local enemy = ent:GetEnemy()
+                if IsValid( enemy ) then
+                    ent:SetEnemy( NULL )
+                    ent:ClearEnemyMemory( enemy )
+                end
             end
             if ( CurTime() - ragdoll.l_TranqGun_DropTime ) < wakeTime then continue end
 
@@ -552,7 +557,7 @@ if ( SERVER ) then
 
                         wakeUp = false
                         phys:EnableCollisions( false  )
-                        ent.l_TranqGun_IsWakingUp = ( CurTime() + 0.66 )
+                        ent.l_TranqGun_IsWakingUp = ( CurTime() + 0.75 )
 
                         ent.l_TranqGun_PreWakePhysData[ #ent.l_TranqGun_PreWakePhysData + 1 ] = { 
                             phys, 
@@ -563,7 +568,7 @@ if ( SERVER ) then
                     end
                 end
             elseif !ent.l_TranqGun_IsProp and CurTime() < wakingTime then
-                local lerpVal = ( 1 - ( wakingTime - CurTime() ) / 0.66 )
+                local lerpVal = ( 1 - ( wakingTime - CurTime() ) / 0.75 )
 
                 for _, data in ipairs( ent.l_TranqGun_PreWakePhysData ) do
                     local phys = data[ 1 ]
@@ -607,12 +612,12 @@ if ( SERVER ) then
         end
     end
 
-    hook_Add( "Think", "LambdaTranq_OnServerThink", OnServerThink )
-    hook_Add( "CreateEntityRagdoll", "LambdaTranq_OnCreateEntityRagdoll", OnCreateEntityRagdoll )
-    hook_Add( "EntityTakeDamage", "LambdaTranq_", OnEntityTakeDamage )
-    hook_Add( "PostEntityTakeDamage", "LambdaTranq_OnEntityPostTakeDamage", OnEntityPostTakeDamage )
-    hook_Add( "EntityRemoved", "LambdaTranq_OnEntityRemoved", OnEntityRemoved )
-    hook_Add( "EntityEmitSound", "LambdaTranq_OnEntityEmitSound", OnEntityEmitSound )
+    hook.Add( "Think", "LambdaTranq_OnServerThink", OnServerThink )
+    hook.Add( "CreateEntityRagdoll", "LambdaTranq_OnCreateEntityRagdoll", OnCreateEntityRagdoll )
+    hook.Add( "EntityTakeDamage", "LambdaTranq_", OnEntityTakeDamage )
+    hook.Add( "PostEntityTakeDamage", "LambdaTranq_OnEntityPostTakeDamage", OnEntityPostTakeDamage )
+    hook.Add( "EntityRemoved", "LambdaTranq_OnEntityRemoved", OnEntityRemoved )
+    hook.Add( "EntityEmitSound", "LambdaTranq_OnEntityEmitSound", OnEntityEmitSound )
 else
     local DrawText = draw.DrawText
     local LocalPlayer = LocalPlayer
@@ -723,8 +728,8 @@ else
         end
     end
 
-    if LambdaIsForked then hook_Add( "HUDPaint", "LambdaTranq_RagdollNameDisplay", RagdollNameDisplay ) end
-    hook_Add( "PreDrawEffects", "LambdaTranq_DrawZZZs", DrawZZZs )
+    if LambdaIsForked then hook.Add( "HUDPaint", "LambdaTranq_RagdollNameDisplay", RagdollNameDisplay ) end
+    hook.Add( "PreDrawEffects", "LambdaTranq_DrawZZZs", DrawZZZs )
 
     ---
 
@@ -795,10 +800,11 @@ local function OnDartTouch( self, ent )
             self:EmitSound( "lambdaplayers/weapons/tranqgun/tranqgun_hit" .. random( 3 ) .. ".mp3", 65, random( 98, 104 ), 1, CHAN_STATIC )
         end
 
-        if ent.l_TranqGun_DropTime then
-            local incTime = sleepTime:GetFloat()
-            incTime = ( incTime - ( incTime * ( koTime / koMaxTime ) ) )
-            ent.l_TranqGun_DropTime = ( ent.l_TranqGun_DropTime + incTime )
+        local dropTime = ent.l_TranqGun_DropTime
+        if dropTime then
+            local maxTime = sleepTime:GetFloat()
+            local incTime = min( maxTime - ( maxTime * ( koTime / koMaxTime ) ), ( CurTime() - dropTime ) )
+            ent.l_TranqGun_DropTime = ( dropTime + incTime )
         elseif ent:Health() > 0 then
             if ent.IsLambdaPlayer and ent:Alive() and LambdaIsForked then 
                 if !ent:GetState( "Tranquilized" ) then
@@ -827,15 +833,13 @@ local function OnDartTouch( self, ent )
                     local function BecomeADoll( ent, ragCopyTarg )
                         local preStopVel = ( ent:GetVelocity() + ent:GetMoveVelocity() )
 
+                        ent:SentenceStop()
+                        ent:StopMoving()
+
                         ent:SetNoDraw( true )
                         ent:DrawShadow( false )
                         ent:AddEFlags( EFL_NO_THINK_FUNCTION )
                         ent:AddFlags( FL_NOTARGET )
-
-                        ent:SentenceStop()
-                        ent:ClearEnemyMemory( ent:GetEnemy() )
-                        ent:SetEnemy( NULL )
-                        ent:StopMoving()
 
                         local soundTbl = ent.l_TranqGun_EmitedSounds
                         if soundTbl then
@@ -962,6 +966,10 @@ local function OnDartTouch( self, ent )
                         ent.l_TranqGun_HiddenChildren = hiddenChildren
                     end
 
+                    if NPCVC and random( 100 ) <= ent.NPCVC_SpeechChance then
+                        NPCVC:PlayVoiceLine( ent, "panic" )
+                    end
+
                     CreateTimer( koTimer, koTime, 1, function()
                         if !IsValid( ent ) or ent:Health() <= 0 or ent:GetInternalVariable( "m_lifeState" ) != 0 then return end
 
@@ -969,7 +977,7 @@ local function OnDartTouch( self, ent )
                         if IsValid( zippyRag ) then
                             zippyRag:DontDeleteOnRemove( ent )
                             ent:StopActiveRagdoll()
-                            hook.Remove( "Think", "RagAnimateTo" .. ent:EntIndex() )
+                            hook_Remove( "Think", "RagAnimateTo" .. ent:EntIndex() )
 
                             SimpleTimer( 0.81, function()
                                 if !IsValid( ent ) then return end
@@ -981,6 +989,8 @@ local function OnDartTouch( self, ent )
                         end
 
                         BecomeADoll( ent )
+
+                        if NPCVC then NPCVC:StopCurrentSpeech( ent ) end
                     end )
                 else
                     AdjustTimer( koTimer, max( TimerTimeLeft( koTimer ) - koTime, 0 ) )
