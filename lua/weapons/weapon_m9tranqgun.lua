@@ -8,6 +8,7 @@ if ( CLIENT ) then
     SWEP.PrintName			= "Tranquilizer Gun"
     SWEP.Author			    = "YerSoMasher"
     SWEP.Instructions		= "Left mouse to fire a tranquilizer dart!"
+    SWEP.Category           = "YerSoMashy"
     SWEP.Slot			    = 1
     SWEP.SlotPos			= 2
     SWEP.DrawAmmo			= true
@@ -17,7 +18,7 @@ if ( CLIENT ) then
 end
 
 SWEP.Spawnable              = true
-SWEP.AdminOnly              = true
+SWEP.AdminOnly              = false
 SWEP.Weight			        = 5
 SWEP.AutoSwitchTo		    = false
 SWEP.AutoSwitchFrom		    = false
@@ -28,7 +29,7 @@ SWEP.WorldModel			    = "models/lambdaplayers/weapons/w_pist_m9_tranq.mdl"
 SWEP.UseHands               = true
 
 SWEP.Primary.ClipSize		= -1
-SWEP.Primary.DefaultClip	= 5
+SWEP.Primary.DefaultClip	= 10
 SWEP.Primary.Ammo		    = "XBowBolt"
 
 SWEP.Secondary.ClipSize		= -1
