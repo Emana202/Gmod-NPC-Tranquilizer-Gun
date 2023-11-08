@@ -40,10 +40,10 @@ local livingBeingMat = {
     [ MAT_FLESH ] = true
 }
 
-local hitDamage = CreateConVar( "sv_tranqgun_hitdamage", "5", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
-local sleepTime = CreateConVar( "sv_tranqgun_sleeptime", "30", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
-local knockoutTime = CreateConVar( "sv_tranqgun_knockouttime", "3", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
-local physDmgThreshold = CreateConVar( "sv_tranqgun_physdmgthreshold", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
+local sv_npctranqgun_hitdamage = CreateConVar( "sv_npctranqgun_hitdamage", "0", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
+local sv_npctranqgun_sleeptime = CreateConVar( "sv_npctranqgun_sleeptime", "30", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
+local sv_npctranqgun_knockouttime = CreateConVar( "sv_npctranqgun_knockouttime", "3", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
+local sv_npctranqgun_physdmgthreshold = CreateConVar( "sv_npctranqgun_physdmgthreshold", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
 
 local function GetHeadPosition( ent )
     local bone = ent:LookupBone( "ValveBiped.Bip01_Head1" )
@@ -65,7 +65,7 @@ local function GetHeadPosition( ent )
     end
 
     local matrix = ent:GetBoneMatrix( bone )
-    return ( ismatrix( matrix ) and matrix:GetTranslation() or ent:GetBonePosition( bone ) )
+    return ( ismatrix( matrix ) and matrix:GetTranslation() or ( ent:GetBonePosition( bone ) or ent:EyePos() ) )
 end
 
 local function GetBurnEndTime( ent )
@@ -201,7 +201,7 @@ if ( SERVER ) then
                 
 
                 ragdoll.l_TranqGun_DropTime = CurTime()
-                while ( IsValid( ragdoll ) and ( CurTime() - ragdoll.l_TranqGun_DropTime ) < sleepTime:GetFloat() ) do
+                while ( IsValid( ragdoll ) and ( CurTime() - ragdoll.l_TranqGun_DropTime ) < sv_npctranqgun_sleeptime:GetFloat() ) do
                     coroutine_yield()
                 end
 
@@ -467,7 +467,7 @@ if ( SERVER ) then
 
         if dmginfo:IsDamageType( DMG_CRUSH ) then
             dmginfo:ScaleDamage( 0.5 )
-            if dmginfo:GetDamage() < physDmgThreshold:GetInt() then return end
+            if dmginfo:GetDamage() < sv_npctranqgun_physdmgthreshold:GetInt() then return end
         end
 
         dmginfo:SetDamageCustom( 33554432 )
@@ -500,7 +500,7 @@ if ( SERVER ) then
     end
 
     local function OnServerThink()
-        local wakeTime = sleepTime:GetFloat()
+        local wakeTime = sv_npctranqgun_sleeptime:GetFloat()
         for _, ent in ipairs( ents_GetAll() ) do
             if !IsValid( ent ) or !ent.l_TranqGun_IsTranquilized then continue end
 
@@ -521,6 +521,8 @@ if ( SERVER ) then
                     ent:SetEnemy( NULL )
                     ent:ClearEnemyMemory( enemy )
                 end
+
+                if ent.invdelay then ent.invdelay = ( CurTime() + 1 ) end
             end
             if ( CurTime() - ragdoll.l_TranqGun_DropTime ) < wakeTime then continue end
 
@@ -602,9 +604,16 @@ if ( SERVER ) then
                 ent.l_TranqGun_IsWakingUp = false
                 ent.l_TranqGun_IsTranquilized = false 
                 ent.BecomeActiveRagdoll = ent.l_TranqGun_ZippyRagFunc
+                ent.FRMignore = false
 
                 if ragdoll:IsOnFire() then
                     ent:Ignite( GetBurnEndTime( ragdoll ) )
+                end
+                
+                if ent.stealth_MEnemies then
+                    net.Start( "AddNPCtoTable" )
+                        net.WriteEntity( ent )
+                    net.Broadcast()
                 end
 
                 ragdoll:Remove()
@@ -737,18 +746,27 @@ else
         spawnmenu.AddToolCategory( "Utilities", "YerSoMashy", "YerSoMashy" )
     end
 
+    local cvarList = {
+        [ "sv_npctranqgun_hitdamage" ] = sv_npctranqgun_hitdamage:GetDefault(),
+        [ "sv_npctranqgun_sleeptime" ] = sv_npctranqgun_sleeptime:GetDefault(),
+        [ "sv_npctranqgun_knockouttime" ] = sv_npctranqgun_knockouttime:GetDefault(),
+        [ "sv_npctranqgun_physdmgthreshold" ] = sv_npctranqgun_physdmgthreshold:GetDefault()
+    }
+
     local function PopulateToolMenu()
         spawnmenu.AddToolMenuOption( "Utilities", "YerSoMashy", "TranqGunMenu", "Tranquilizer Gun", "", "", function( panel ) 
-            panel:NumSlider( "Hit Damage", "sv_tranqgun_hitdamage", 0, 100, 0 )
+            local preset = panel:ToolPresets( "npctranqgun", cvarList )
+
+            panel:NumSlider( "Hit Damage", "sv_npctranqgun_hitdamage", 0, 100, 0 )
             panel:ControlHelp( "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head." )
 
-            panel:NumSlider( "Sleep Time", "sv_tranqgun_sleeptime", 0, 600, 1 )
+            panel:NumSlider( "Sleep Time", "sv_npctranqgun_sleeptime", 0, 600, 0 )
             panel:ControlHelp( "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head." )
 
-            panel:NumSlider( "Pass Out Time", "sv_tranqgun_knockouttime", 0, 60, 1 )
+            panel:NumSlider( "Pass Out Time", "sv_npctranqgun_knockouttime", 0, 60, 1 )
             panel:ControlHelp( "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head." )
         
-            panel:NumSlider( "Physical Damage Threshold", "sv_tranqgun_physdmgthreshold", 0, 1000, 0 )
+            panel:NumSlider( "Physical Damage Threshold", "sv_npctranqgun_physdmgthreshold", 0, 1000, 0 )
             panel:ControlHelp( "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?" )
         end )
     end
@@ -773,7 +791,7 @@ local function OnDartTouch( self, ent )
     if !touchTr.HitSky then 
         local hitPos = touchTr.HitPos
 
-        local koMaxTime = knockoutTime:GetFloat()
+        local koMaxTime = sv_npctranqgun_knockouttime:GetFloat()
         local koTime = koMaxTime
         local hitGroup = touchTr.HitGroup
         if hitGroup == HITGROUP_HEAD or hitGroup == HITGROUP_CHEST and random( 2 ) == 1 and ent:GetForward():Dot( touchTr.Normal ) < 0.1 then
@@ -782,7 +800,7 @@ local function OnDartTouch( self, ent )
             koTime = min( Remap( hitPos:Distance( GetHeadPosition( ent ) ), 0, 64, 0, koMaxTime ), koMaxTime )
         end
 
-        local dmg = hitDamage:GetInt()
+        local dmg = sv_npctranqgun_hitdamage:GetInt()
         if dmg > 0 then
             local dmginfo = DamageInfo()
             dmginfo:SetDamage( dmg - ( dmg * ( koTime / koMaxTime ) ) )
@@ -802,7 +820,7 @@ local function OnDartTouch( self, ent )
 
         local dropTime = ent.l_TranqGun_DropTime
         if dropTime then
-            local maxTime = sleepTime:GetFloat()
+            local maxTime = sv_npctranqgun_sleeptime:GetFloat()
             local incTime = min( maxTime - ( maxTime * ( koTime / koMaxTime ) ), ( CurTime() - dropTime ) )
             ent.l_TranqGun_DropTime = ( dropTime + incTime )
         elseif ent:Health() > 0 then
@@ -824,10 +842,6 @@ local function OnDartTouch( self, ent )
             elseif !ent:IsNextBot() and ent:IsNPC() and ( IsValidRagdoll( ent:GetModel() ) or IsValidProp( ent:GetModel() ) ) then
                 local createID = ent:GetCreationID()
                 local koTimer = "LambdaTranq_NPCKnockOutTimer_" .. createID
-
-                if ent.Time_StopActiveRagdoll then
-                    ent.Time_StopActiveRagdoll = ( ent.Time_StopActiveRagdoll + koTime + 1 )
-                end
 
                 if !TimerExists( koTimer ) then
                     local function BecomeADoll( ent, ragCopyTarg )
@@ -964,6 +978,8 @@ local function OnDartTouch( self, ent )
                         ent.l_TranqGun_IsProp = !isRagdoll
                         ent.l_TranqGun_IsTranquilized = true
                         ent.l_TranqGun_HiddenChildren = hiddenChildren
+
+                        return ragdoll
                     end
 
                     if NPCVC and random( 100 ) <= ent.NPCVC_SpeechChance then
@@ -987,8 +1003,27 @@ local function OnDartTouch( self, ent )
 
                             return
                         end
+                        local corpse = BecomeADoll( ent )
 
-                        BecomeADoll( ent )
+                        local stealthPlys = ent.stealth_MEnemies
+                        if stealthPlys then
+                            for k, ply in pairs( stealthPlys ) do
+                                if !IsValid( ply ) then continue end
+                                table.remove( stealthPlys, k )
+                                ent:SetTarget( ent )
+
+                                net.Start( "NPCCalmed" )
+                                    net.WriteEntity( ent )
+                                net.Send( ply )
+                            end
+                            if table.IsEmpty( stealthPlys ) then ent:SetNWBool( "stealth_alerted", false ) end
+
+                            if CorpseCreate then CorpseCreate( ent, corpse ) end
+                            net.Start( "RemoveNPCfromTable" )
+                                net.WriteEntity( ent )
+                            net.Broadcast()
+                        end
+                        ent.FRMignore = true
 
                         if NPCVC then NPCVC:StopCurrentSpeech( ent ) end
                     end )
