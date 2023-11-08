@@ -40,10 +40,11 @@ local livingBeingMat = {
     [ MAT_FLESH ] = true
 }
 
-local sv_npctranqgun_hitdamage = CreateConVar( "sv_npctranqgun_hitdamage", "0", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
-local sv_npctranqgun_sleeptime = CreateConVar( "sv_npctranqgun_sleeptime", "30", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
-local sv_npctranqgun_knockouttime = CreateConVar( "sv_npctranqgun_knockouttime", "3", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
-local sv_npctranqgun_physdmgthreshold = CreateConVar( "sv_npctranqgun_physdmgthreshold", "10", ( FCVAR_ARCHIVE + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
+local sv_npctranqgun_hitdamage = CreateConVar( "sv_npctranqgun_hitdamage", "0", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
+local sv_npctranqgun_sleeptime = CreateConVar( "sv_npctranqgun_sleeptime", "30", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
+local sv_npctranqgun_knockouttime = CreateConVar( "sv_npctranqgun_knockouttime", "3", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
+local sv_npctranqgun_physdmgthreshold = CreateConVar( "sv_npctranqgun_physdmgthreshold", "10", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
+local sv_npctranqgun_dropweapon = CreateConVar( "sv_npctranqgun_dropweapon", "0", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "If the NPC should drop their weapon instead of still holding it when knocked out.", 0, 1 )
 
 local function GetHeadPosition( ent )
     local bone = ent:LookupBone( "ValveBiped.Bip01_Head1" )
@@ -466,8 +467,13 @@ if ( SERVER ) then
         if dmginfo:GetAttacker() == owner or dmginfo:GetInflictor() == owner or !IsValid( owner ) or owner.l_TranqGun_IsWakingUp then return end
 
         if dmginfo:IsDamageType( DMG_CRUSH ) then
-            dmginfo:ScaleDamage( 0.5 )
-            if dmginfo:GetDamage() < sv_npctranqgun_physdmgthreshold:GetInt() then return end
+            local dmg = ( dmginfo:GetDamage() * 0.5 )
+            if dmg < sv_npctranqgun_physdmgthreshold:GetInt() then return end
+            dmginfo:SetDamage( dmg )
+
+            if livingBeingMat[ ent:GetMaterialType() ] and dmg > ( owner:GetMaxHealth() * 0.8 ) then
+                ent:EmitSound( "Player.FallGib" )
+            end
         end
 
         dmginfo:SetDamageCustom( 33554432 )
@@ -589,9 +595,12 @@ if ( SERVER ) then
                 ent:DrawShadow( true )
 
                 local weapon = ent:GetActiveWeapon()
+                local droppedWep = ent.l_TranqGun_DroppedWep
                 if IsValid( weapon ) then 
                     weapon:SetNoDraw( false )
                     weapon:DrawShadow( true )
+                elseif IsValid( droppedWep ) and !IsValid( droppedWep:GetOwner() ) and droppedWep:GetPos():DistToSqr( ragPos ) <= 16384 then
+                    ent:PickupWeapon( droppedWep )
                 end
 
                 local hiddenChildren = ent.l_TranqGun_HiddenChildren
@@ -750,7 +759,8 @@ else
         [ "sv_npctranqgun_hitdamage" ] = sv_npctranqgun_hitdamage:GetDefault(),
         [ "sv_npctranqgun_sleeptime" ] = sv_npctranqgun_sleeptime:GetDefault(),
         [ "sv_npctranqgun_knockouttime" ] = sv_npctranqgun_knockouttime:GetDefault(),
-        [ "sv_npctranqgun_physdmgthreshold" ] = sv_npctranqgun_physdmgthreshold:GetDefault()
+        [ "sv_npctranqgun_physdmgthreshold" ] = sv_npctranqgun_physdmgthreshold:GetDefault(),
+        [ "sv_npctranqgun_dropweapon" ] = sv_npctranqgun_dropweapon:GetDefault(),
     }
 
     local function PopulateToolMenu()
@@ -768,6 +778,9 @@ else
         
             panel:NumSlider( "Physical Damage Threshold", "sv_npctranqgun_physdmgthreshold", 0, 1000, 0 )
             panel:ControlHelp( "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?" )
+        
+            panel:CheckBox( "Drop Weapon", "sv_npctranqgun_dropweapon" )
+            panel:ControlHelp( "If the NPC should drop their weapon instead of still holding it when knocked out." )
         end )
     end
 
@@ -937,6 +950,7 @@ local function OnDartTouch( self, ent )
                             ent:Extinguish()
                         end
 
+                        local dropWpn = sv_npctranqgun_dropweapon:GetBool()
                         local weapon = ent:GetActiveWeapon()
                         local hiddenChildren = {}
                         for _, child in ipairs( ent:GetChildren() ) do
@@ -948,6 +962,8 @@ local function OnDartTouch( self, ent )
                             if child != weapon then
                                 child:SetRenderMode( RENDERMODE_NONE )
                                 child:DrawShadow( false )
+                            elseif dropWpn then
+                                continue
                             end
 
                             local fakeChild = ents_Create( "base_gmodentity" )
@@ -962,9 +978,14 @@ local function OnDartTouch( self, ent )
                             hiddenChildren[ #hiddenChildren + 1 ] = child
                         end
 
-                        if IsValid( weapon ) then 
-                            weapon:SetNoDraw( true )
-                            weapon:DrawShadow( false )
+                        if IsValid( weapon ) then
+                            if !dropWpn then
+                                weapon:SetNoDraw( true )
+                                weapon:DrawShadow( false )
+                            else
+                                ent.l_TranqGun_DroppedWep = weapon
+                                ent:DropWeapon( weapon, nil, ragdoll:GetVelocity() )    
+                            end
                         end
 
                         ent.l_TranqGun_ZippyRagFunc = ent.BecomeActiveRagdoll
@@ -1040,6 +1061,7 @@ local function OnDartTouch( self, ent )
             effectData:SetSurfaceProp( touchTr.SurfaceProps )
             effectData:SetHitBox( touchTr.HitBox )
             effectData:SetEntity( touchTr.Entity )
+            effectData:SetDamageType( DMG_DIRECT + DMG_NEVERGIB )
             util_Effect( "Impact", effectData )
         end
     end
