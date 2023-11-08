@@ -808,7 +808,7 @@ local function OnDartTouch( self, ent )
             dmginfo:SetDamagePosition( hitPos )
             dmginfo:SetDamageForce( touchTr.Normal * dmg * 30 )
             dmginfo:SetAttacker( owner or self )
-            dmginfo:SetInflictor( self.l_Weapon or self )
+            dmginfo:SetInflictor( IsValid( self.l_Weapon ) and self.l_Weapon or ( owner or self ) )
 
             touchTr.HitGroup = 0
             ent:DispatchTraceAttack( dmginfo, touchTr )
