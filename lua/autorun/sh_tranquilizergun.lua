@@ -24,6 +24,10 @@ local IsValidProp = util.IsValidProp
 local IsValidRagdoll = util.IsValidRagdoll
 local IsValidModel = util.IsValidModel
 local ents_GetAll = ents.GetAll
+local GetHumans = player.GetHumans
+local RecipientFilter = RecipientFilter
+local GetSurfacePropName = util.GetSurfacePropName
+local match = string.match
 local max = math.max
 local min = math.min
 local ismatrix = ismatrix
@@ -39,12 +43,23 @@ local livingBeingMat = {
     [ MAT_ANTLION ] = true,
     [ MAT_FLESH ] = true
 }
+local livingBeingSurfProps = {
+    [ "flesh" ] = true,
+    [ "zombieflesh" ] = true,
+    [ "alienflesh" ] = true,
+    [ "antlion" ] = true,
+    [ "hunter" ] = true
+}
 
 local sv_npctranqgun_hitdamage = CreateConVar( "sv_npctranqgun_hitdamage", "0", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head.", 0, 100 )
 local sv_npctranqgun_sleeptime = CreateConVar( "sv_npctranqgun_sleeptime", "30", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "For how long the target that are put down can sleep until they finally wake up. Scales depending on how close the hit were from the target's head.", 0, 600 )
 local sv_npctranqgun_knockouttime = CreateConVar( "sv_npctranqgun_knockouttime", "3", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head.", 0, 60 )
 local sv_npctranqgun_physdmgthreshold = CreateConVar( "sv_npctranqgun_physdmgthreshold", "10", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?", 0, 1000 )
-local sv_npctranqgun_dropweapon = CreateConVar( "sv_npctranqgun_dropweapon", "0", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "If the NPC should drop their weapon instead of still holding it when knocked out.", 0, 1 )
+local sv_npctranqgun_dropweapon = CreateConVar( "sv_npctranqgun_dropweapon", "1", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "If the NPC should drop their weapon instead of still holding it when knocked out.", 0, 1 )
+local sv_npctranqgun_onlyfleshnpcs = CreateConVar( "sv_npctranqgun_onlyfleshnpcs", "1", ( FCVAR_REPLICATED + FCVAR_ARCHIVE ), "If the tranquilizer darts should only affect NPCs that are made of flesh instead of metal and other stuff.", 0, 1 )
+
+local cl_npctranqgun_playsnoringsnds = CreateClientConVar( "cl_npctranqgun_playsnoringsnds", "1", true, true, "If you should be able to hear the snoring of tranquilized targets.", 0, 1 )
+local cl_npctranqgun_draweffect = CreateClientConVar( "cl_npctranqgun_draweffect", "1", true, false, "If a 'ZZZs' effect should draw above the tranquilized target's head.", 0, 1 )
 
 local function GetHeadPosition( ent )
     local bone = ent:LookupBone( "ValveBiped.Bip01_Head1" )
@@ -104,7 +119,7 @@ if ( SERVER ) then
                 lambda:SimpleTimer( 0.1, function() lambda:StopCurrentVoiceLine() end )
 
                 if lambda.l_TranqGun_State == 0 then
-                    lambda:DropWeapon()
+                    if sv_npctranqgun_dropweapon:GetBool() then lambda:DropWeapon() end
                     lambda.l_TranqGun_State = 1
 
                     local wepent = lambda.WeaponEnt
@@ -165,7 +180,13 @@ if ( SERVER ) then
                     lambda:Extinguish()
                 end
 
-                local snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav" )
+                local sndFilter = RecipientFilter()
+                for _, ply in ipairs( GetHumans() ) do
+                    if ply:GetInfoNum( "cl_npctranqgun_playsnoringsnds", 0 ) != 1 then continue end
+                    sndFilter:AddPlayer( ply )
+                end
+
+                local snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav", sndFilter )
                 if snoreSnd then
                     snoreSnd:PlayEx( 1, lambda:GetVoicePitch() )
                     snoreSnd:SetSoundLevel( 65 )
@@ -534,6 +555,18 @@ if ( SERVER ) then
 
             local wakeUp = false
             if !wakingTime then
+                ent:SetCollisionGroup( ent.l_TranqGun_LastCollisionGroup )
+                ent:RemoveFlags( FL_NOTARGET )
+
+                local phys = ent:GetPhysicsObject()
+                if IsValid( phys ) then phys:EnableCollisions( true ) end
+    
+                local snoreSnd = ragdoll.l_TranqGun_SnoreSnd
+                if snoreSnd then
+                    snoreSnd:Stop()
+                    snoreSnd = nil
+                end
+
                 traceTbl.start = ( ragPos + vector_up * 6 )
                 traceTbl.endpos = ( ragPos - vector_up * 32 )
                 traceTbl.filter[ 1 ] = ragdoll
@@ -543,17 +576,6 @@ if ( SERVER ) then
                 local groundTr = TraceLine( traceTbl )
                 if groundTr.Hit then
                     ent:SetPos( groundTr.HitPos )
-                    ent:SetCollisionGroup( ent.l_TranqGun_LastCollisionGroup )
-                    ent:RemoveFlags( FL_NOTARGET )
-
-                    local phys = ent:GetPhysicsObject()
-                    if IsValid( phys ) then phys:EnableCollisions( true ) end
-        
-                    local snoreSnd = ragdoll.l_TranqGun_SnoreSnd
-                    if snoreSnd then
-                        snoreSnd:Stop()
-                        snoreSnd = nil
-                    end
 
                     ent.l_TranqGun_PreWakePhysData = {}
                     for i = 0, ( ragdoll:GetPhysicsObjectCount() - 1 ) do
@@ -564,7 +586,7 @@ if ( SERVER ) then
                         if !physBone then continue end
 
                         wakeUp = false
-                        phys:EnableCollisions( false  )
+                        phys:EnableCollisions( false )
                         ent.l_TranqGun_IsWakingUp = ( CurTime() + 0.75 )
 
                         ent.l_TranqGun_PreWakePhysData[ #ent.l_TranqGun_PreWakePhysData + 1 ] = { 
@@ -688,6 +710,7 @@ else
     local sleepIcons = {}
 
     local function DrawZZZs()
+        local shouldDraw = cl_npctranqgun_draweffect:GetBool()
         for _, ragdoll in ipairs( ents_GetAll() ) do
             if !IsValid( ragdoll ) then continue end
 
@@ -706,9 +729,11 @@ else
                     Ragdoll = ragdoll
                 }
             else
+                if !shouldDraw then iconData.Color.a = 0 end
                 iconData.Pos = drawPos
             end
         end
+        if !shouldDraw then return end
 
         local drawAng = EyeAngles()
         drawAng:RotateAroundAxis( drawAng:Up(), -90 )
@@ -761,13 +786,16 @@ else
         [ "sv_npctranqgun_knockouttime" ] = sv_npctranqgun_knockouttime:GetDefault(),
         [ "sv_npctranqgun_physdmgthreshold" ] = sv_npctranqgun_physdmgthreshold:GetDefault(),
         [ "sv_npctranqgun_dropweapon" ] = sv_npctranqgun_dropweapon:GetDefault(),
+        [ "sv_npctranqgun_onlyfleshnpcs" ] = sv_npctranqgun_onlyfleshnpcs:GetDefault(),
+        [ "cl_npctranqgun_draweffect" ] = cl_npctranqgun_draweffect:GetDefault(),
+        [ "cl_npctranqgun_playsnoringsnds" ] = cl_npctranqgun_playsnoringsnds:GetDefault(),
     }
 
     local function PopulateToolMenu()
         spawnmenu.AddToolMenuOption( "Utilities", "YerSoMashy", "TranqGunMenu", "Tranquilizer Gun", "", "", function( panel ) 
             local preset = panel:ToolPresets( "npctranqgun", cvarList )
 
-            panel:NumSlider( "Hit Damage", "sv_npctranqgun_hitdamage", 0, 100, 0 )
+            panel:NumSlider( "Dart Hit Damage", "sv_npctranqgun_hitdamage", 0, 100, 0 )
             panel:ControlHelp( "How much damage does the tranquilizer's darts deal? Scales depending on how close the hit were from the target's head." )
 
             panel:NumSlider( "Sleep Time", "sv_npctranqgun_sleeptime", 0, 600, 0 )
@@ -777,10 +805,19 @@ else
             panel:ControlHelp( "For how long the target that's been shot with dart can stand on foot until passing out. Scales depending on how close the hit were from the target's head." )
         
             panel:NumSlider( "Physical Damage Threshold", "sv_npctranqgun_physdmgthreshold", 0, 1000, 0 )
-            panel:ControlHelp( "How big should the physical damage dealt to a ragdoll to be in order for it to count for the entity?" )
-        
+            panel:ControlHelp( "How much amount of physics-based damage needs to be dealt to a ragdoll in order for it to also apply to its owner?" )
+
             panel:CheckBox( "Drop Weapon", "sv_npctranqgun_dropweapon" )
-            panel:ControlHelp( "If the NPC should drop their weapon instead of still holding it when knocked out." )
+            panel:ControlHelp( "If the tranquilized target should drop their weapon when knocked out." )
+
+            panel:CheckBox( "Fleshy NPCs Only", "sv_npctranqgun_onlyfleshnpcs" )
+            panel:ControlHelp( "If the tranquilizer darts should only affect NPCs that are made out of flesh instead of metal or other stuff, like humans or zombies." )
+
+            panel:CheckBox( "Play Snoring Sounds", "cl_npctranqgun_playsnoringsnds" )
+            panel:ControlHelp( "If you should be able to hear the snoring of tranquilized targets." )
+
+            panel:CheckBox( "Draw Sleep Effect", "cl_npctranqgun_draweffect" )
+            panel:ControlHelp( "If a 'ZZZs' effect should draw above the tranquilized target's head." )
         end )
     end
 
@@ -827,229 +864,239 @@ local function OnDartTouch( self, ent )
             ent:DispatchTraceAttack( dmginfo, touchTr )
         end
 
-        if livingBeingMat[ ent:GetMaterialType() ] then
+        local surfProp = touchTr.SurfaceProps
+        local surfName = GetSurfacePropName( surfProp )
+        local hitFlesh = ( livingBeingSurfProps[ surfName ] == true or match( surfName, "flesh" ) != nil )
+        if hitFlesh then
             self:EmitSound( "lambdaplayers/weapons/tranqgun/tranqgun_hit" .. random( 3 ) .. ".mp3", 65, random( 98, 104 ), 1, CHAN_STATIC )
         end
+        if hitFlesh or !sv_npctranqgun_onlyfleshnpcs:GetBool() then
+            local dropTime = ent.l_TranqGun_DropTime
+            if dropTime then
+                local maxTime = sv_npctranqgun_sleeptime:GetFloat()
+                local incTime = min( maxTime - ( maxTime * ( koTime / koMaxTime ) ), ( CurTime() - dropTime ) )
+                ent.l_TranqGun_DropTime = ( dropTime + incTime )
+            elseif ent:Health() > 0 then
+                if ent.IsLambdaPlayer and ent:Alive() and LambdaIsForked then 
+                    if !ent:GetState( "Tranquilized" ) then
+                        local hitTime = ent.l_TranqGun_HitTime
+                        if !hitTime then
+                            if ent:GetEnemy() == owner and random( 100 ) <= ent:GetVoiceChance() then
+                                ent:PlaySoundFile( "panic" )
+                            end
 
-        local dropTime = ent.l_TranqGun_DropTime
-        if dropTime then
-            local maxTime = sv_npctranqgun_sleeptime:GetFloat()
-            local incTime = min( maxTime - ( maxTime * ( koTime / koMaxTime ) ), ( CurTime() - dropTime ) )
-            ent.l_TranqGun_DropTime = ( dropTime + incTime )
-        elseif ent:Health() > 0 then
-            if ent.IsLambdaPlayer and ent:Alive() and LambdaIsForked then 
-                if !ent:GetState( "Tranquilized" ) then
-                    local hitTime = ent.l_TranqGun_HitTime
-                    if !hitTime then
-                        if ent:GetEnemy() == owner and random( 100 ) <= ent:GetVoiceChance() then
-                            ent:PlaySoundFile( "panic" )
+                            ent.l_TranqGun_HitTime = ( CurTime() + koTime )
+                        else
+                            ent.l_TranqGun_HitTime = ( ent.l_TranqGun_HitTime - koTime )
                         end
-
-                        ent.l_TranqGun_HitTime = ( CurTime() + koTime )
-                    else
-                        ent.l_TranqGun_HitTime = ( ent.l_TranqGun_HitTime - koTime )
+                    elseif ent.l_TranqGun_State == 4 then
+                        ent.l_TranqGun_State = 5
                     end
-                elseif ent.l_TranqGun_State == 4 then
-                    ent.l_TranqGun_State = 5
-                end
-            elseif !ent:IsNextBot() and ent:IsNPC() and ( IsValidRagdoll( ent:GetModel() ) or IsValidProp( ent:GetModel() ) ) then
-                local createID = ent:GetCreationID()
-                local koTimer = "LambdaTranq_NPCKnockOutTimer_" .. createID
+                elseif !ent:IsNextBot() and ent:IsNPC() and ( IsValidRagdoll( ent:GetModel() ) or IsValidProp( ent:GetModel() ) ) then
+                    local createID = ent:GetCreationID()
+                    local koTimer = "LambdaTranq_NPCKnockOutTimer_" .. createID
 
-                if !TimerExists( koTimer ) then
-                    local function BecomeADoll( ent, ragCopyTarg )
-                        local preStopVel = ( ent:GetVelocity() + ent:GetMoveVelocity() )
+                    if !TimerExists( koTimer ) then
+                        local function BecomeADoll( ent, ragCopyTarg )
+                            local preStopVel = ( ent:GetVelocity() + ent:GetMoveVelocity() )
 
-                        ent:SentenceStop()
-                        ent:StopMoving()
+                            ent:SentenceStop()
+                            ent:StopMoving()
 
-                        ent:SetNoDraw( true )
-                        ent:DrawShadow( false )
-                        ent:AddEFlags( EFL_NO_THINK_FUNCTION )
-                        ent:AddFlags( FL_NOTARGET )
+                            ent:SetNoDraw( true )
+                            ent:DrawShadow( false )
+                            ent:AddEFlags( EFL_NO_THINK_FUNCTION )
+                            ent:AddFlags( FL_NOTARGET )
 
-                        local soundTbl = ent.l_TranqGun_EmitedSounds
-                        if soundTbl then
-                            for _, snd in ipairs( soundTbl ) do
-                                ent:StopSound( snd )
-                            end
-                            table.Empty( soundTbl )
-                        end
-
-                        local preCollGroup = ent:GetCollisionGroup()
-                        ent:SetCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
-                        ent.l_TranqGun_LastCollisionGroup = preCollGroup
-
-                        for _, v in ipairs( ents_GetAll() ) do
-                            if !v.GetEnemy or v:GetEnemy() != ent then continue end
-                            v:SetEnemy( NULL )
-
-                            if v.IsLambdaPlayer and v:GetState( "Combat" ) then
-                                v:SetState()
-                                v:CancelMovement()
-                            end
-                        end
-
-                        local phys = ent:GetPhysicsObject()
-                        if IsValid( phys ) then phys:EnableCollisions( false ) end
-
-                        local isRagdoll = IsValidRagdoll( ent:GetModel() )
-                        local ragdoll = ents_Create( isRagdoll and "prop_ragdoll" or "prop_physics" )
-
-                        ragdoll:SetModel( ent:GetModel() )
-                        ragdoll:SetPos( ent:GetPos() )
-                        if !isRagdoll then ragdoll:SetAngles( ent:GetAngles() ) end
-                        ragdoll:SetOwner( ent )
-
-                        if isRagdoll then
-                            ragdoll:AddEffects( EF_BONEMERGE )
-                            ragdoll:SetParent( ragCopyTarg or ent ) 
-                        end
-
-                        ragdoll:Spawn()
-                        ragdoll:SetCollisionGroup( isRagdoll and COLLISION_GROUP_WEAPON or ent.l_TranqGun_LastCollisionGroup )
-
-                        ragdoll:SetSkin( ent:GetSkin() )
-                        for _, v in ipairs( ent:GetBodyGroups() ) do 
-                            ragdoll:SetBodygroup( v.id, ent:GetBodygroup( v.id ) )
-                        end
-
-                        if isRagdoll then
-                            ragdoll:SetParent()
-                            ragdoll:RemoveEffects( EF_BONEMERGE )
-                        end
-
-                        for i = 0, ( ragdoll:GetPhysicsObjectCount() - 1 ) do
-                            local phys = ragdoll:GetPhysicsObjectNum( i )
-                            if IsValid( phys ) then phys:AddVelocity( ent:GetVelocity() + ent:GetMoveVelocity() ) end
-                        end
-
-                        ragdoll.l_TranqGun_DropTime = CurTime()
-                        ragdoll:SetNW2Entity( "lambda_tranqgun_owner", ent )
-
-                        local blinkFlex = ragdoll:GetFlexIDByName( "blink" )
-                        if blinkFlex then ragdoll:SetFlexWeight( blinkFlex, 1 ) end
-
-                        local rndPitch = random( 95, 110 )
-                        ragdoll:EmitSound( "lambdaplayers/weapons/tranqgun/vo_presleep" .. random( 7 ) .. ".mp3", 70, rndPitch, 1, CHAN_VOICE )
-                        
-                        local snoreSnd
-                        SimpleTimer( 1, function()
-                            if !IsValid( ragdoll ) then return end
-
-                            snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav" )
-                            if !snoreSnd then return end 
-
-                            snoreSnd:PlayEx( 1, rndPitch ) 
-                            snoreSnd:SetSoundLevel( 65 )
-                            ragdoll.l_TranqGun_SnoreSnd = snoreSnd
-                        end )
-
-                        if ent:IsOnFire() then
-                            ragdoll:Ignite( GetBurnEndTime( ent ) )
-                            ent:Extinguish()
-                        end
-
-                        local dropWpn = sv_npctranqgun_dropweapon:GetBool()
-                        local weapon = ent:GetActiveWeapon()
-                        local hiddenChildren = {}
-                        for _, child in ipairs( ent:GetChildren() ) do
-                            if !IsValid( child ) or child:GetNoDraw() then continue end
-
-                            local mdl = child:GetModel()
-                            if !mdl or !IsValidModel( mdl ) then continue end
-
-                            if child != weapon then
-                                child:SetRenderMode( RENDERMODE_NONE )
-                                child:DrawShadow( false )
-                            elseif dropWpn then
-                                continue
+                            local soundTbl = ent.l_TranqGun_EmitedSounds
+                            if soundTbl then
+                                for _, snd in ipairs( soundTbl ) do
+                                    ent:StopSound( snd )
+                                end
+                                table.Empty( soundTbl )
                             end
 
-                            local fakeChild = ents_Create( "base_gmodentity" )
-                            fakeChild:SetModel( mdl )
-                            fakeChild:SetPos( ragdoll:GetPos() )
-                            fakeChild:SetAngles( ragdoll:GetAngles() )
-                            fakeChild:Spawn()
-                            fakeChild:SetParent( ragdoll )
-                            fakeChild:AddEffects( EF_BONEMERGE )
-                            ragdoll:DeleteOnRemove( fakeChild )
+                            local preCollGroup = ent:GetCollisionGroup()
+                            ent:SetCollisionGroup( COLLISION_GROUP_IN_VEHICLE )
+                            ent.l_TranqGun_LastCollisionGroup = preCollGroup
 
-                            hiddenChildren[ #hiddenChildren + 1 ] = child
-                        end
+                            for _, v in ipairs( ents_GetAll() ) do
+                                if !v.GetEnemy or v:GetEnemy() != ent then continue end
+                                v:SetEnemy( NULL )
 
-                        if IsValid( weapon ) then
-                            if !dropWpn then
-                                weapon:SetNoDraw( true )
-                                weapon:DrawShadow( false )
-                            else
-                                ent.l_TranqGun_DroppedWep = weapon
-                                ent:DropWeapon( weapon, nil, ragdoll:GetVelocity() )    
+                                if v.IsLambdaPlayer and v:GetState( "Combat" ) then
+                                    v:SetState()
+                                    v:CancelMovement()
+                                end
                             end
-                        end
 
-                        ent.l_TranqGun_ZippyRagFunc = ent.BecomeActiveRagdoll
-                        ent.BecomeActiveRagdoll = nil
-                        
-                        if RDReagdollMaster then 
-                            SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
-                        end
+                            local phys = ent:GetPhysicsObject()
+                            if IsValid( phys ) then phys:EnableCollisions( false ) end
 
-                        ent.l_TranqGun_Ragdoll = ragdoll
-                        ent.l_TranqGun_IsProp = !isRagdoll
-                        ent.l_TranqGun_IsTranquilized = true
-                        ent.l_TranqGun_HiddenChildren = hiddenChildren
+                            local isRagdoll = IsValidRagdoll( ent:GetModel() )
+                            local ragdoll = ents_Create( isRagdoll and "prop_ragdoll" or "prop_physics" )
 
-                        return ragdoll
-                    end
+                            ragdoll:SetModel( ent:GetModel() )
+                            ragdoll:SetPos( ent:GetPos() )
+                            if !isRagdoll then ragdoll:SetAngles( ent:GetAngles() ) end
+                            ragdoll:SetOwner( ent )
 
-                    if NPCVC and random( 100 ) <= ent.NPCVC_SpeechChance then
-                        NPCVC:PlayVoiceLine( ent, "panic" )
-                    end
+                            if isRagdoll then
+                                ragdoll:AddEffects( EF_BONEMERGE )
+                                ragdoll:SetParent( ragCopyTarg or ent ) 
+                            end
 
-                    CreateTimer( koTimer, koTime, 1, function()
-                        if !IsValid( ent ) or ent:Health() <= 0 or ent:GetInternalVariable( "m_lifeState" ) != 0 then return end
+                            ragdoll:Spawn()
+                            ragdoll:SetCollisionGroup( isRagdoll and COLLISION_GROUP_WEAPON or ent.l_TranqGun_LastCollisionGroup )
 
-                        local zippyRag = ent.ActiveRagdoll
-                        if IsValid( zippyRag ) then
-                            zippyRag:DontDeleteOnRemove( ent )
-                            ent:StopActiveRagdoll()
-                            hook_Remove( "Think", "RagAnimateTo" .. ent:EntIndex() )
+                            ragdoll:SetSkin( ent:GetSkin() )
+                            for _, v in ipairs( ent:GetBodyGroups() ) do 
+                                ragdoll:SetBodygroup( v.id, ent:GetBodygroup( v.id ) )
+                            end
 
-                            SimpleTimer( 0.81, function()
-                                if !IsValid( ent ) then return end
-                                BecomeADoll( ent, ( IsValid( zippyRag ) and zippyRag ) )
-                                if IsValid( zippyRag ) then zippyRag:Remove() end
+                            if isRagdoll then
+                                ragdoll:SetParent()
+                                ragdoll:RemoveEffects( EF_BONEMERGE )
+                            end
+
+                            for i = 0, ( ragdoll:GetPhysicsObjectCount() - 1 ) do
+                                local phys = ragdoll:GetPhysicsObjectNum( i )
+                                if IsValid( phys ) then phys:AddVelocity( ent:GetVelocity() + ent:GetMoveVelocity() ) end
+                            end
+
+                            ragdoll.l_TranqGun_DropTime = CurTime()
+                            ragdoll:SetNW2Entity( "lambda_tranqgun_owner", ent )
+
+                            local blinkFlex = ragdoll:GetFlexIDByName( "blink" )
+                            if blinkFlex then ragdoll:SetFlexWeight( blinkFlex, 1 ) end
+
+                            local rndPitch = random( 95, 110 )
+                            ragdoll:EmitSound( "lambdaplayers/weapons/tranqgun/vo_presleep" .. random( 7 ) .. ".mp3", 70, rndPitch, 1, CHAN_VOICE )
+                            
+                            local snoreSnd
+                            SimpleTimer( 1, function()
+                                if !IsValid( ragdoll ) then return end
+
+                                local sndFilter = RecipientFilter()
+                                for _, ply in ipairs( GetHumans() ) do
+                                    if ply:GetInfoNum( "cl_npctranqgun_playsnoringsnds", 0 ) != 1 then continue end
+                                    sndFilter:AddPlayer( ply )
+                                end
+
+                                snoreSnd = CreateSound( ragdoll, "lambdaplayers/weapons/tranqgun/vo_snoring" .. random( 3 ) .. ".wav", sndFilter )
+                                if !snoreSnd then return end 
+
+                                snoreSnd:PlayEx( 1, rndPitch ) 
+                                snoreSnd:SetSoundLevel( 65 )
+                                ragdoll.l_TranqGun_SnoreSnd = snoreSnd
                             end )
 
-                            return
-                        end
-                        local corpse = BecomeADoll( ent )
-
-                        local stealthPlys = ent.stealth_MEnemies
-                        if stealthPlys then
-                            for k, ply in pairs( stealthPlys ) do
-                                if !IsValid( ply ) then continue end
-                                table.remove( stealthPlys, k )
-                                ent:SetTarget( ent )
-
-                                net.Start( "NPCCalmed" )
-                                    net.WriteEntity( ent )
-                                net.Send( ply )
+                            if ent:IsOnFire() then
+                                ragdoll:Ignite( GetBurnEndTime( ent ) )
+                                ent:Extinguish()
                             end
-                            if table.IsEmpty( stealthPlys ) then ent:SetNWBool( "stealth_alerted", false ) end
 
-                            if CorpseCreate then CorpseCreate( ent, corpse ) end
-                            net.Start( "RemoveNPCfromTable" )
-                                net.WriteEntity( ent )
-                            net.Broadcast()
+                            local dropWpn = sv_npctranqgun_dropweapon:GetBool()
+                            local weapon = ent:GetActiveWeapon()
+                            local hiddenChildren = {}
+                            for _, child in ipairs( ent:GetChildren() ) do
+                                if !IsValid( child ) or child:GetNoDraw() then continue end
+
+                                local mdl = child:GetModel()
+                                if !mdl or !IsValidModel( mdl ) then continue end
+
+                                if child != weapon then
+                                    child:SetRenderMode( RENDERMODE_NONE )
+                                    child:DrawShadow( false )
+                                elseif dropWpn then
+                                    continue
+                                end
+
+                                local fakeChild = ents_Create( "base_gmodentity" )
+                                fakeChild:SetModel( mdl )
+                                fakeChild:SetPos( ragdoll:GetPos() )
+                                fakeChild:SetAngles( ragdoll:GetAngles() )
+                                fakeChild:Spawn()
+                                fakeChild:SetParent( ragdoll )
+                                fakeChild:AddEffects( EF_BONEMERGE )
+                                ragdoll:DeleteOnRemove( fakeChild )
+
+                                hiddenChildren[ #hiddenChildren + 1 ] = child
+                            end
+
+                            if IsValid( weapon ) then
+                                if !dropWpn then
+                                    weapon:SetNoDraw( true )
+                                    weapon:DrawShadow( false )
+                                else
+                                    ent.l_TranqGun_DroppedWep = weapon
+                                    ent:DropWeapon( weapon, nil, ragdoll:GetVelocity() )    
+                                end
+                            end
+
+                            ent.l_TranqGun_ZippyRagFunc = ent.BecomeActiveRagdoll
+                            ent.BecomeActiveRagdoll = nil
+                            
+                            if RDReagdollMaster then 
+                                SimpleTimer( 0.1, function() RDReagdollMaster.Kill( ragdoll, true ) end )
+                            end
+
+                            ent.l_TranqGun_Ragdoll = ragdoll
+                            ent.l_TranqGun_IsProp = !isRagdoll
+                            ent.l_TranqGun_IsTranquilized = true
+                            ent.l_TranqGun_HiddenChildren = hiddenChildren
+
+                            return ragdoll
                         end
-                        ent.FRMignore = true
 
-                        if NPCVC then NPCVC:StopCurrentSpeech( ent ) end
-                    end )
-                else
-                    AdjustTimer( koTimer, max( TimerTimeLeft( koTimer ) - koTime, 0 ) )
+                        if NPCVC and random( 100 ) <= ent.NPCVC_SpeechChance then
+                            NPCVC:PlayVoiceLine( ent, "panic" )
+                        end
+
+                        CreateTimer( koTimer, koTime, 1, function()
+                            if !IsValid( ent ) or ent:Health() <= 0 or ent:GetInternalVariable( "m_lifeState" ) != 0 then return end
+
+                            local zippyRag = ent.ActiveRagdoll
+                            if IsValid( zippyRag ) then
+                                zippyRag:DontDeleteOnRemove( ent )
+                                ent:StopActiveRagdoll()
+                                hook_Remove( "Think", "RagAnimateTo" .. ent:EntIndex() )
+
+                                SimpleTimer( 0.81, function()
+                                    if !IsValid( ent ) then return end
+                                    BecomeADoll( ent, ( IsValid( zippyRag ) and zippyRag ) )
+                                    if IsValid( zippyRag ) then zippyRag:Remove() end
+                                end )
+
+                                return
+                            end
+                            local corpse = BecomeADoll( ent )
+
+                            local stealthPlys = ent.stealth_MEnemies
+                            if stealthPlys then
+                                for k, ply in pairs( stealthPlys ) do
+                                    if !IsValid( ply ) then continue end
+                                    table.remove( stealthPlys, k )
+                                    ent:SetTarget( ent )
+
+                                    net.Start( "NPCCalmed" )
+                                        net.WriteEntity( ent )
+                                    net.Send( ply )
+                                end
+                                if table.IsEmpty( stealthPlys ) then ent:SetNWBool( "stealth_alerted", false ) end
+
+                                if CorpseCreate then CorpseCreate( ent, corpse ) end
+                                net.Start( "RemoveNPCfromTable" )
+                                    net.WriteEntity( ent )
+                                net.Broadcast()
+                            end
+                            ent.FRMignore = true
+
+                            if NPCVC then NPCVC:StopCurrentSpeech( ent ) end
+                        end )
+                    else
+                        AdjustTimer( koTimer, max( TimerTimeLeft( koTimer ) - koTime, 0 ) )
+                    end
                 end
             end
         end
@@ -1058,7 +1105,7 @@ local function OnDartTouch( self, ent )
             local effectData = EffectData()
             effectData:SetOrigin( hitPos )
             effectData:SetStart( touchTr.StartPos )
-            effectData:SetSurfaceProp( touchTr.SurfaceProps )
+            effectData:SetSurfaceProp( surfProp )
             effectData:SetHitBox( touchTr.HitBox )
             effectData:SetEntity( touchTr.Entity )
             effectData:SetDamageType( DMG_DIRECT + DMG_NEVERGIB )
@@ -1096,7 +1143,7 @@ function M9TranqGun_FireDart( pos, fwd, owner, weapon )
 
     dart:ManipulateBoneScale( 0, dartScale )
     dart:SetMaterial( "models/shiny" )
-    dart.l_trail = SpriteTrail( dart, 0, trailClr, true, 1, 0, 0.3, 0.5, "effects/beam_generic01" )
+    dart.l_trail = SpriteTrail( dart, 0, trailClr, true, 1.5, 0, 0.3, 0.5, "trails/laser" )
 
     if weapon then
         dart.l_Weapon = weapon
