@@ -466,7 +466,8 @@ if ( SERVER ) then
         if IsValid( ent ) then 
             if ent.l_TranqGun_IsTranquilized then return false end
 
-            if ent:IsNPC() and ( IsValidRagdoll( ent:GetModel() ) or IsValidProp( ent:GetModel() ) ) then
+            local mdl = ent:GetModel()
+            if ent:IsNPC() and mdl and ( IsValidRagdoll( mdl ) or IsValidProp( mdl ) ) then
                 local sndTbl = ent.l_TranqGun_EmitedSounds
                 if !sndTbl then
                     ent.l_TranqGun_EmitedSounds = {}
